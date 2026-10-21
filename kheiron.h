@@ -7,6 +7,7 @@
 
 uint64_t kheiron_rdtsc(void);
 uint64_t kheiron_jitter_sample(void);
+void kheiron_secure_wipe(void *v, size_t n);
 int kheiron_fill(void *buf, size_t len);
 int kheiron_string(char *dest, size_t len, const char *charset);
 uint64_t kheiron_range_u64(uint64_t min, uint64_t max);
@@ -34,6 +35,17 @@ uint64_t kheiron_jitter_sample(void) {
     return res;
 }
 
+void kheiron_secure_wipe(void *v, size_t n) {
+    if (!v || n == 0) {
+        return;
+    }
+    volatile uint8_t *p = (volatile uint8_t *)v;
+    while (n--) {
+        *p++ = 0;
+    }
+    __asm__ __volatile__("" : : "r"(p) : "memory");
+}
+
 static inline uint64_t kheiron_mix64(uint64_t x) {
     x += 0x9e3779b97f4a7c15ULL;
     x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
@@ -55,8 +67,7 @@ int kheiron_fill(void *buf, size_t len) {
         p[i] = (uint8_t)(state & 0xFFULL);
     }
 
-    state = 0;
-    __asm__ __volatile__("" : "+r"(state));
+    kheiron_secure_wipe(&state, sizeof(state));
 
     return 0;
 }

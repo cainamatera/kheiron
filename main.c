@@ -5,13 +5,13 @@
 #include "kheiron.h"
 
 int main(void) {
-    for (int i = 0; i < 5; i++) {
-        uint64_t val = kheiron_range_u64(10, 50);
-        printf("%lu\n", val);
+    uint8_t buf[16];
+    kheiron_fill(buf, sizeof(buf));
+    kheiron_secure_wipe(buf, sizeof(buf));
+    uint32_t sum = 0;
+    for (size_t i = 0; i < sizeof(buf); i++) {
+        sum += buf[i];
     }
-    for (int i = 0; i < 5; i++) {
-        double dbl = kheiron_uniform_double();
-        printf("%.6f\n", dbl);
-    }
+    printf("%u\n", sum);
     return 0;
 }
