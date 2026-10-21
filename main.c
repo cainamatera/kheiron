@@ -5,9 +5,9 @@
 #include "kheiron.h"
 
 int main(void) {
-    for (int i = 0; i < 16; i++) {
-        uint64_t valor = kheiron_jitter_sample();
-        printf("%016lx\n", valor);
-    }
+    const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=";
+    char str[33];
+    kheiron_string(str, 32, charset);
+    printf("%s\n", str);
     return 0;
 }
