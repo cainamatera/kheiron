@@ -9,6 +9,8 @@ uint64_t kheiron_rdtsc(void);
 uint64_t kheiron_jitter_sample(void);
 int kheiron_fill(void *buf, size_t len);
 int kheiron_string(char *dest, size_t len, const char *charset);
+uint64_t kheiron_range_u64(uint64_t min, uint64_t max);
+double kheiron_uniform_double(void);
 
 #ifdef KHEIRON_IMPLEMENTATION
 
@@ -84,6 +86,33 @@ int kheiron_string(char *dest, size_t len, const char *charset) {
 
     dest[len] = '\0';
     return 0;
+}
+
+uint64_t kheiron_range_u64(uint64_t min, uint64_t max) {
+    if (min >= max) {
+        return min;
+    }
+
+    uint64_t range = max - min + 1ULL;
+    if (range == 0) {
+        uint64_t val;
+        kheiron_fill(&val, sizeof(val));
+        return val;
+    }
+
+    uint64_t limit = UINT64_MAX - (UINT64_MAX % range);
+    uint64_t val;
+    do {
+        kheiron_fill(&val, sizeof(val));
+    } while (val >= limit);
+
+    return min + (val % range);
+}
+
+double kheiron_uniform_double(void) {
+    uint64_t val;
+    kheiron_fill(&val, sizeof(val));
+    return (double)(val >> 11) / (double)(1ULL << 53);
 }
 
 #endif

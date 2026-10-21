@@ -5,9 +5,13 @@
 #include "kheiron.h"
 
 int main(void) {
-    const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=";
-    char str[33];
-    kheiron_string(str, 32, charset);
-    printf("%s\n", str);
+    for (int i = 0; i < 5; i++) {
+        uint64_t val = kheiron_range_u64(10, 50);
+        printf("%lu\n", val);
+    }
+    for (int i = 0; i < 5; i++) {
+        double dbl = kheiron_uniform_double();
+        printf("%.6f\n", dbl);
+    }
     return 0;
 }
