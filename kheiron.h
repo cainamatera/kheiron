@@ -7,11 +7,11 @@
 
 uint64_t kheiron_rdtsc(void);
 uint64_t kheiron_jitter_sample(void);
-void kheiron_secure_wipe(void *v, size_t n);
 int kheiron_fill(void *buf, size_t len);
 int kheiron_string(char *dest, size_t len, const char *charset);
 uint64_t kheiron_range_u64(uint64_t min, uint64_t max);
 double kheiron_uniform_double(void);
+void kheiron_secure_wipe(void *v, size_t n);
 
 #ifdef KHEIRON_IMPLEMENTATION
 
@@ -46,11 +46,44 @@ void kheiron_secure_wipe(void *v, size_t n) {
     __asm__ __volatile__("" : : "r"(p) : "memory");
 }
 
-static inline uint64_t kheiron_mix64(uint64_t x) {
-    x += 0x9e3779b97f4a7c15ULL;
-    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
-    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
-    return x ^ (x >> 31);
+static inline uint32_t kheiron_rotl32(uint32_t x, int n) {
+    return (x << n) | (x >> (32 - n));
+}
+
+static inline void kheiron_chacha_qr(uint32_t *a, uint32_t *b, uint32_t *c, uint32_t *d) {
+    *a += *b; *d ^= *a; *d = kheiron_rotl32(*d, 16);
+    *c += *d; *b ^= *c; *b = kheiron_rotl32(*b, 12);
+    *a += *b; *d ^= *a; *d = kheiron_rotl32(*d, 8);
+    *c += *d; *b ^= *c; *b = kheiron_rotl32(*b, 7);
+}
+
+static void kheiron_chacha_block(const uint32_t in[16], uint8_t out[64]) {
+    uint32_t x[16];
+    for (int i = 0; i < 16; i++) {
+        x[i] = in[i];
+    }
+
+    for (int i = 0; i < 10; i++) {
+        kheiron_chacha_qr(&x[0], &x[4], &x[8], &x[12]);
+        kheiron_chacha_qr(&x[1], &x[5], &x[9], &x[13]);
+        kheiron_chacha_qr(&x[2], &x[6], &x[10], &x[14]);
+        kheiron_chacha_qr(&x[3], &x[7], &x[11], &x[15]);
+
+        kheiron_chacha_qr(&x[0], &x[5], &x[10], &x[15]);
+        kheiron_chacha_qr(&x[1], &x[6], &x[11], &x[12]);
+        kheiron_chacha_qr(&x[2], &x[7], &x[8], &x[13]);
+        kheiron_chacha_qr(&x[3], &x[4], &x[9], &x[14]);
+    }
+
+    for (int i = 0; i < 16; i++) {
+        uint32_t val = in[i] + x[i];
+        out[i * 4 + 0] = (uint8_t)(val & 0xFF);
+        out[i * 4 + 1] = (uint8_t)((val >> 8) & 0xFF);
+        out[i * 4 + 2] = (uint8_t)((val >> 16) & 0xFF);
+        out[i * 4 + 3] = (uint8_t)((val >> 24) & 0xFF);
+    }
+
+    kheiron_secure_wipe(x, sizeof(x));
 }
 
 int kheiron_fill(void *buf, size_t len) {
@@ -58,16 +91,48 @@ int kheiron_fill(void *buf, size_t len) {
         return -1;
     }
 
-    uint64_t state = kheiron_jitter_sample();
-    uint8_t *p = (uint8_t *)buf;
+    uint32_t ctx[16];
+    ctx[0] = 0x61707865;
+    ctx[1] = 0x3320646e;
+    ctx[2] = 0x79622d32;
+    ctx[3] = 0x6b206574;
 
-    for (size_t i = 0; i < len; i++) {
-        uint64_t delta = kheiron_rdtsc();
-        state = kheiron_mix64(state ^ delta);
-        p[i] = (uint8_t)(state & 0xFFULL);
+    for (int i = 0; i < 4; i++) {
+        uint64_t sample = kheiron_jitter_sample();
+        ctx[4 + i * 2] = (uint32_t)(sample & 0xFFFFFFFF);
+        ctx[4 + i * 2 + 1] = (uint32_t)(sample >> 32);
     }
 
-    kheiron_secure_wipe(&state, sizeof(state));
+    uint64_t t1 = kheiron_rdtsc();
+    uint64_t t2 = kheiron_rdtsc();
+    ctx[12] = (uint32_t)(t1 & 0xFFFFFFFF);
+    ctx[13] = (uint32_t)(t1 >> 32);
+    ctx[14] = (uint32_t)(t2 & 0xFFFFFFFF);
+    ctx[15] = (uint32_t)(t2 >> 32);
+
+    uint8_t *p = (uint8_t *)buf;
+    size_t remaining = len;
+    uint8_t keystream[64];
+
+    while (remaining > 0) {
+        kheiron_chacha_block(ctx, keystream);
+
+        ctx[12]++;
+        if (ctx[12] == 0) {
+            ctx[13]++;
+        }
+
+        size_t chunk = remaining < 64 ? remaining : 64;
+        for (size_t i = 0; i < chunk; i++) {
+            p[i] = keystream[i];
+        }
+
+        p += chunk;
+        remaining -= chunk;
+    }
+
+    kheiron_secure_wipe(keystream, sizeof(keystream));
+    kheiron_secure_wipe(ctx, sizeof(ctx));
 
     return 0;
 }
