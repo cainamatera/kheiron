@@ -155,20 +155,33 @@ int kheiron_string(char *dest, size_t len, const char *charset) {
         return -1;
     }
 
-    size_t limit = 256 - (256 % c_len);
+    uint32_t mask;
+    if (c_len == 1) {
+        mask = 0;
+    } else {
+        mask = (1U << (32 - __builtin_clz((uint32_t)(c_len - 1)))) - 1U;
+    }
+
+    uint8_t batch[64];
+    size_t batch_idx = 64;
 
     for (size_t i = 0; i < len; i++) {
-        uint8_t byte;
-        do {
-            if (kheiron_fill(&byte, 1) != 0) {
-                return -1;
+        for (;;) {
+            if (batch_idx >= 64) {
+                kheiron_fill(batch, sizeof(batch));
+                batch_idx = 0;
             }
-        } while ((size_t)byte >= limit);
-
-        dest[i] = charset[byte % c_len];
+            uint8_t raw = batch[batch_idx++];
+            uint32_t val = (uint32_t)raw & mask;
+            if (val < c_len) {
+                dest[i] = charset[val];
+                break;
+            }
+        }
     }
 
     dest[len] = '\0';
+    kheiron_secure_wipe(batch, sizeof(batch));
     return 0;
 }
 
