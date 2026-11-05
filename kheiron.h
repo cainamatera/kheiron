@@ -177,20 +177,23 @@ uint64_t kheiron_range_u64(uint64_t min, uint64_t max) {
         return min;
     }
 
-    uint64_t range = max - min + 1ULL;
-    if (range == 0) {
+    uint64_t s = max - min + 1ULL;
+    if (s == 0) {
         uint64_t val;
         kheiron_fill(&val, sizeof(val));
         return val;
     }
 
-    uint64_t limit = UINT64_MAX - (UINT64_MAX % range);
-    uint64_t val;
-    do {
-        kheiron_fill(&val, sizeof(val));
-    } while (val >= limit);
-
-    return min + (val % range);
+    uint64_t t = -s % s;
+    for (;;) {
+        uint64_t x;
+        kheiron_fill(&x, sizeof(x));
+        __uint128_t m = (__uint128_t)x * (__uint128_t)s;
+        uint64_t l = (uint64_t)m;
+        if (l >= t) {
+            return (uint64_t)(m >> 64) + min;
+        }
+    }
 }
 
 double kheiron_uniform_double(void) {
