@@ -16,9 +16,17 @@ void kheiron_secure_wipe(void *v, size_t n);
 #ifdef KHEIRON_IMPLEMENTATION
 
 uint64_t kheiron_rdtsc(void) {
+#if defined(__x86_64__)
     uint32_t lo, hi;
     __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
     return ((uint64_t)hi << 32) | lo;
+#elif defined(__aarch64__)
+    uint64_t val;
+    __asm__ __volatile__("mrs %0, cntvct_el0" : "=r"(val));
+    return val;
+#else
+    return 0ULL;
+#endif
 }
 
 uint64_t kheiron_jitter_sample(void) {
