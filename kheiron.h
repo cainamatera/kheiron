@@ -12,9 +12,13 @@ int kheiron_string(char *dest, size_t len, const char *charset);
 uint64_t kheiron_range_u64(uint64_t min, uint64_t max);
 double kheiron_uniform_double(void);
 float kheiron_uniform_float(void);
+int kheiron_shuffle(void *base, size_t nmemb, size_t size);
+double kheiron_gaussian(double mean, double stddev);
 void kheiron_secure_wipe(void *v, size_t n);
 
 #ifdef KHEIRON_IMPLEMENTATION
+
+#include <math.h>
 
 uint64_t kheiron_rdtsc(void) {
 #if defined(__x86_64__)
@@ -220,6 +224,53 @@ float kheiron_uniform_float(void) {
     uint32_t r;
     kheiron_fill(&r, sizeof(r));
     return (float)(r >> 8) * 0x1.0p-24f;
+}
+
+int kheiron_shuffle(void *base, size_t nmemb, size_t size) {
+    if (base == NULL || nmemb <= 1 || size == 0) {
+        return -1;
+    }
+
+    uint8_t *p = (uint8_t *)base;
+    uint8_t tmp[256];
+
+    for (size_t i = nmemb - 1; i >= 1; i--) {
+        size_t j = (size_t)kheiron_range_u64(0, (uint64_t)i);
+        if (i != j) {
+            uint8_t *a = p + (i * size);
+            uint8_t *b = p + (j * size);
+            size_t remaining = size;
+            while (remaining > 0) {
+                size_t chunk = remaining > sizeof(tmp) ? sizeof(tmp) : remaining;
+                memcpy(tmp, a, chunk);
+                memcpy(a, b, chunk);
+                memcpy(b, tmp, chunk);
+                a += chunk;
+                b += chunk;
+                remaining -= chunk;
+            }
+        }
+    }
+
+    kheiron_secure_wipe(tmp, sizeof(tmp));
+    return 0;
+}
+
+double kheiron_gaussian(double mean, double stddev) {
+    if (stddev <= 0.0) {
+        return mean;
+    }
+
+    for (;;) {
+        double u1 = 2.0 * kheiron_uniform_double() - 1.0;
+        double u2 = 2.0 * kheiron_uniform_double() - 1.0;
+        double s = u1 * u1 + u2 * u2;
+        if (s >= 1.0 || s == 0.0) {
+            continue;
+        }
+        double m = sqrt((-2.0 * log(s)) / s);
+        return mean + stddev * (u1 * m);
+    }
 }
 
 #endif

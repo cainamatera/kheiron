@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <time.h>
+#include <math.h>
 
 int main(void) {
     int failed = 0;
@@ -100,6 +101,55 @@ int main(void) {
     if (!float_bounds_ok) {
         failed = 1;
     }
+
+    int shuffle_arr[10000];
+    for (int i = 0; i < 10000; i++) {
+        shuffle_arr[i] = i;
+    }
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    kheiron_shuffle(shuffle_arr, 10000, sizeof(int));
+    clock_gettime(CLOCK_MONOTONIC, &end);
+
+    double elapsed_shuffle = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+    double shuffle_rate = 10000.0 / elapsed_shuffle;
+
+    static uint8_t seen[10000];
+    int shuffle_ok = 1;
+    for (int i = 0; i < 10000; i++) {
+        int v = shuffle_arr[i];
+        if (v < 0 || v >= 10000 || seen[v]) {
+            shuffle_ok = 0;
+            break;
+        }
+        seen[v] = 1;
+    }
+
+    printf("kheiron_shuffle: %.2f elem/sec (elapsed: %.6f s) -> %s\n",
+           shuffle_rate, elapsed_shuffle, shuffle_ok ? "APROVADO" : "REPROVADO");
+    if (!shuffle_ok) {
+        failed = 1;
+    }
+
+    uint64_t gauss_samples = 1000000ULL;
+    double sum = 0.0;
+    double sum_sq = 0.0;
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    for (uint64_t i = 0; i < gauss_samples; i++) {
+        double g = kheiron_gaussian(0.0, 1.0);
+        sum += g;
+        sum_sq += g * g;
+    }
+    clock_gettime(CLOCK_MONOTONIC, &end);
+
+    double elapsed_gauss = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+    double mean = sum / (double)gauss_samples;
+    double variance = (sum_sq - (sum * sum) / (double)gauss_samples) / (double)(gauss_samples - 1);
+    double mgauss_per_sec = (gauss_samples / 1e6) / elapsed_gauss;
+
+    printf("kheiron_gaussian: %.2f M/sec (elapsed: %.4f s) -> mean: %.4f, variance: %.4f\n",
+           mgauss_per_sec, elapsed_gauss, mean, variance);
 
     return failed ? 1 : 0;
 }
