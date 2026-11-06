@@ -62,5 +62,44 @@ int main(void) {
     double kstr_per_sec = (n_strings / 1000.0) / elapsed_str;
     printf("kheiron_string: %.2f kstrings/sec (elapsed: %.4f s)\n", kstr_per_sec, elapsed_str);
 
+    uint64_t fp_samples = 10000000ULL;
+    int double_bounds_ok = 1;
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    for (uint64_t i = 0; i < fp_samples; i++) {
+        double d = kheiron_uniform_double();
+        if (d < 0.0 || d >= 1.0) {
+            double_bounds_ok = 0;
+        }
+    }
+    clock_gettime(CLOCK_MONOTONIC, &end);
+
+    double elapsed_double = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+    double mdoubles_per_sec = (fp_samples / 1e6) / elapsed_double;
+    printf("kheiron_uniform_double: %.2f Mdoubles/sec (elapsed: %.4f s) -> %s\n",
+           mdoubles_per_sec, elapsed_double, double_bounds_ok ? "APROVADO [0.0, 1.0)" : "REPROVADO");
+    if (!double_bounds_ok) {
+        failed = 1;
+    }
+
+    int float_bounds_ok = 1;
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    for (uint64_t i = 0; i < fp_samples; i++) {
+        float f = kheiron_uniform_float();
+        if (f < 0.0f || f >= 1.0f) {
+            float_bounds_ok = 0;
+        }
+    }
+    clock_gettime(CLOCK_MONOTONIC, &end);
+
+    double elapsed_float = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+    double mfloats_per_sec = (fp_samples / 1e6) / elapsed_float;
+    printf("kheiron_uniform_float: %.2f Mfloats/sec (elapsed: %.4f s) -> %s\n",
+           mfloats_per_sec, elapsed_float, float_bounds_ok ? "APROVADO [0.0f, 1.0f)" : "REPROVADO");
+    if (!float_bounds_ok) {
+        failed = 1;
+    }
+
     return failed ? 1 : 0;
 }

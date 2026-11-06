@@ -11,6 +11,7 @@ int kheiron_fill(void *buf, size_t len);
 int kheiron_string(char *dest, size_t len, const char *charset);
 uint64_t kheiron_range_u64(uint64_t min, uint64_t max);
 double kheiron_uniform_double(void);
+float kheiron_uniform_float(void);
 void kheiron_secure_wipe(void *v, size_t n);
 
 #ifdef KHEIRON_IMPLEMENTATION
@@ -210,9 +211,15 @@ uint64_t kheiron_range_u64(uint64_t min, uint64_t max) {
 }
 
 double kheiron_uniform_double(void) {
-    uint64_t val;
-    kheiron_fill(&val, sizeof(val));
-    return (double)(val >> 11) / (double)(1ULL << 53);
+    uint64_t r;
+    kheiron_fill(&r, sizeof(r));
+    return (double)(r >> 11) * 0x1.0p-53;
+}
+
+float kheiron_uniform_float(void) {
+    uint32_t r;
+    kheiron_fill(&r, sizeof(r));
+    return (float)(r >> 8) * 0x1.0p-24f;
 }
 
 #endif
