@@ -7,6 +7,45 @@
 #include <string.h>
 #include <time.h>
 #include <math.h>
+#include <pthread.h>
+
+#define THREAD_COUNT 8
+#define THREAD_BUF_SIZE 65536
+
+typedef struct {
+    int thread_id;
+    uint8_t buffer[THREAD_BUF_SIZE];
+    uint8_t ctx_buffer[THREAD_BUF_SIZE];
+    int success;
+} thread_data_t;
+
+static void *thread_worker(void *arg) {
+    thread_data_t *data = (thread_data_t *)arg;
+    data->success = 0;
+
+    if (kheiron_fill(data->buffer, sizeof(data->buffer)) != 0) {
+        return NULL;
+    }
+
+    kheiron_ctx_t ctx;
+    uint8_t seed[32];
+    for (size_t i = 0; i < sizeof(seed); i++) {
+        seed[i] = (uint8_t)(data->thread_id * 31 + i);
+    }
+
+    if (kheiron_ctx_init(&ctx, seed, sizeof(seed)) != 0) {
+        return NULL;
+    }
+
+    if (kheiron_ctx_fill(&ctx, data->ctx_buffer, sizeof(data->ctx_buffer)) != 0) {
+        kheiron_ctx_wipe(&ctx);
+        return NULL;
+    }
+
+    kheiron_ctx_wipe(&ctx);
+    data->success = 1;
+    return NULL;
+}
 
 int main(int argc, char *argv[]) {
     int failed = 0;
@@ -191,6 +230,52 @@ int main(int argc, char *argv[]) {
 
     printf("kheiron_gaussian (%llu): %.2f M/sec (elapsed: %.4f s) -> mean: %.4f, variance: %.4f\n",
            (unsigned long long)gauss_samples, mgauss_per_sec, elapsed_gauss, mean, variance);
+
+    pthread_t threads[THREAD_COUNT];
+    thread_data_t thread_data[THREAD_COUNT];
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    for (int i = 0; i < THREAD_COUNT; i++) {
+        thread_data[i].thread_id = i;
+        pthread_create(&threads[i], NULL, thread_worker, &thread_data[i]);
+    }
+
+    int threads_ok = 1;
+    for (int i = 0; i < THREAD_COUNT; i++) {
+        pthread_join(threads[i], NULL);
+        if (!thread_data[i].success) {
+            threads_ok = 0;
+        }
+    }
+    clock_gettime(CLOCK_MONOTONIC, &end);
+
+    for (int i = 0; i < THREAD_COUNT; i++) {
+        int all_zeros = 1;
+        for (size_t b = 0; b < sizeof(thread_data[i].buffer); b++) {
+            if (thread_data[i].buffer[b] != 0) {
+                all_zeros = 0;
+                break;
+            }
+        }
+        if (all_zeros) {
+            threads_ok = 0;
+        }
+        for (int j = i + 1; j < THREAD_COUNT; j++) {
+            if (memcmp(thread_data[i].buffer, thread_data[j].buffer, sizeof(thread_data[i].buffer)) == 0) {
+                threads_ok = 0;
+            }
+            if (memcmp(thread_data[i].ctx_buffer, thread_data[j].ctx_buffer, sizeof(thread_data[i].ctx_buffer)) == 0) {
+                threads_ok = 0;
+            }
+        }
+    }
+
+    double elapsed_threads = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+    printf("kheiron_threads (%d threads): %s (elapsed: %.6f s)\n",
+           THREAD_COUNT, threads_ok ? "APROVADO" : "REPROVADO", elapsed_threads);
+    if (!threads_ok) {
+        failed = 1;
+    }
 
     return failed ? 1 : 0;
 }
