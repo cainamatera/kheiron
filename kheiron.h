@@ -36,6 +36,8 @@ double kheiron_gaussian(double mean, double stddev);
 int kheiron_reseed(const void *user_entropy, size_t len);
 void kheiron_secure_wipe(void *v, size_t n);
 int kheiron_os_entropy(void *buf, size_t len);
+int kheiron_consttime_cmp(const void *a, const void *b, size_t len);
+uint32_t kheiron_consttime_select_u32(uint32_t mask, uint32_t a, uint32_t b);
 
 #ifdef KHEIRON_IMPLEMENTATION
 
@@ -602,6 +604,26 @@ double kheiron_gaussian(double mean, double stddev) {
         double m = sqrt((-2.0 * log(s)) / s);
         return mean + stddev * (u1 * m);
     }
+}
+
+int kheiron_consttime_cmp(const void *a, const void *b, size_t len) {
+    if (a == NULL || b == NULL || len == 0) {
+        return -1;
+    }
+
+    const volatile uint8_t *pa = (const volatile uint8_t *)a;
+    const volatile uint8_t *pb = (const volatile uint8_t *)b;
+    volatile uint8_t diff = 0;
+
+    for (size_t i = 0; i < len; i++) {
+        diff |= (pa[i] ^ pb[i]);
+    }
+
+    return (diff != 0);
+}
+
+uint32_t kheiron_consttime_select_u32(uint32_t mask, uint32_t a, uint32_t b) {
+    return (mask & a) | (~mask & b);
 }
 
 #endif

@@ -345,5 +345,47 @@ int main(int argc, char *argv[]) {
 
     free(nist_buf);
 
+    uint32_t rfc_state[16] = {
+        0x61707865, 0x3320646e, 0x79622d32, 0x6b206574,
+        0x03020100, 0x07060504, 0x0b0a0908, 0x0f0e0d0c,
+        0x13121110, 0x17161514, 0x1b1a1918, 0x1f1e1d1c,
+        0x00000001, 0x09000000, 0x4a000000, 0x00000000
+    };
+    uint8_t rfc_out[64];
+    kheiron_chacha_block(rfc_state, rfc_out);
+
+    const uint8_t rfc_expected[64] = {
+        0x10, 0xf1, 0xe7, 0xe4, 0xd1, 0x3b, 0x59, 0x15,
+        0x50, 0x0f, 0xdd, 0x1f, 0xa3, 0x20, 0x71, 0xc4,
+        0xc7, 0xd1, 0xf4, 0xc7, 0x33, 0xc0, 0x68, 0x03,
+        0x04, 0x22, 0xaa, 0x9a, 0xc3, 0xd4, 0x6c, 0x4e,
+        0xd2, 0x82, 0x64, 0x46, 0x07, 0x9f, 0xaa, 0x09,
+        0x14, 0xc2, 0xd7, 0x05, 0xd9, 0x8b, 0x02, 0xa2,
+        0xb5, 0x12, 0x9c, 0xd1, 0xde, 0x16, 0x4e, 0xb9,
+        0xcb, 0xd0, 0x83, 0xe8, 0xa2, 0x50, 0x3c, 0x4e
+    };
+
+    int rfc_cmp = kheiron_consttime_cmp(rfc_out, rfc_expected, sizeof(rfc_out));
+    printf("RFC 7539 Vector: %s\n", rfc_cmp == 0 ? "APROVADO" : "REPROVADO");
+    if (rfc_cmp != 0) {
+        failed = 1;
+    }
+
+    uint8_t ct_a[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+    uint8_t ct_b[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+    uint8_t ct_c[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 99};
+
+    int ct_eq = (kheiron_consttime_cmp(ct_a, ct_b, sizeof(ct_a)) == 0);
+    int ct_neq = (kheiron_consttime_cmp(ct_a, ct_c, sizeof(ct_a)) != 0);
+    uint32_t sel_1 = kheiron_consttime_select_u32(0xFFFFFFFFU, 0xAAAAAAAAU, 0x55555555U);
+    uint32_t sel_0 = kheiron_consttime_select_u32(0x00000000U, 0xAAAAAAAAU, 0x55555555U);
+    int ct_sel_ok = (sel_1 == 0xAAAAAAAAU && sel_0 == 0x55555555U);
+
+    int ct_ops_ok = ct_eq && ct_neq && ct_sel_ok;
+    printf("Constant-time Operations: %s\n", ct_ops_ok ? "APROVADO" : "REPROVADO");
+    if (!ct_ops_ok) {
+        failed = 1;
+    }
+
     return failed ? 1 : 0;
 }
