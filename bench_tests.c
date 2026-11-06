@@ -277,5 +277,73 @@ int main(int argc, char *argv[]) {
         failed = 1;
     }
 
+    size_t nist_bits = is_strict ? 10000000ULL : 1000000ULL;
+    size_t nist_bytes = nist_bits / 8;
+    uint8_t *nist_buf = (uint8_t *)malloc(nist_bytes);
+    if (!nist_buf) {
+        return 1;
+    }
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    kheiron_fill(nist_buf, nist_bytes);
+
+    int64_t sn = 0;
+    size_t total_ones = 0;
+    for (size_t i = 0; i < nist_bytes; i++) {
+        uint8_t b = nist_buf[i];
+        for (int bit = 0; bit < 8; bit++) {
+            if ((b >> bit) & 1) {
+                sn++;
+                total_ones++;
+            } else {
+                sn--;
+            }
+        }
+    }
+
+    double sobs = fabs((double)sn) / sqrt((double)nist_bits);
+    double p_val_monobit = erfc(sobs / sqrt(2.0));
+    int monobit_ok = (p_val_monobit >= 0.01);
+
+    double pi = (double)total_ones / (double)nist_bits;
+    int runs_ok = 1;
+    double p_val_runs = 0.0;
+
+    if (fabs(pi - 0.5) >= (2.0 / sqrt((double)nist_bits))) {
+        runs_ok = 0;
+    } else {
+        size_t vn = 1;
+        uint8_t prev_bit = nist_buf[0] & 1;
+        for (size_t i = 0; i < nist_bytes; i++) {
+            uint8_t b = nist_buf[i];
+            int start_bit = (i == 0) ? 1 : 0;
+            for (int bit = start_bit; bit < 8; bit++) {
+                uint8_t curr_bit = (b >> bit) & 1;
+                if (curr_bit != prev_bit) {
+                    vn++;
+                    prev_bit = curr_bit;
+                }
+            }
+        }
+
+        double num = fabs((double)vn - 2.0 * (double)nist_bits * pi * (1.0 - pi));
+        double den = 2.0 * sqrt(2.0 * (double)nist_bits) * pi * (1.0 - pi);
+        p_val_runs = erfc(num / den);
+        runs_ok = (p_val_runs >= 0.01);
+    }
+    clock_gettime(CLOCK_MONOTONIC, &end);
+
+    double elapsed_nist = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+    printf("NIST Monobit (%zu bits): p-val = %.6f -> %s (elapsed: %.4f s)\n",
+           nist_bits, p_val_monobit, monobit_ok ? "APROVADO" : "REPROVADO", elapsed_nist);
+    printf("NIST Runs (%zu bits): p-val = %.6f, pi = %.6f -> %s\n",
+           nist_bits, p_val_runs, pi, runs_ok ? "APROVADO" : "REPROVADO");
+
+    if (!monobit_ok || !runs_ok) {
+        failed = 1;
+    }
+
+    free(nist_buf);
+
     return failed ? 1 : 0;
 }

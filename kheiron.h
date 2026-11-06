@@ -35,10 +35,105 @@ int kheiron_shuffle(void *base, size_t nmemb, size_t size);
 double kheiron_gaussian(double mean, double stddev);
 int kheiron_reseed(const void *user_entropy, size_t len);
 void kheiron_secure_wipe(void *v, size_t n);
+int kheiron_os_entropy(void *buf, size_t len);
 
 #ifdef KHEIRON_IMPLEMENTATION
 
 #include <math.h>
+
+#ifndef KHEIRON_NO_OS_ENTROPY
+#if defined(_WIN32) || defined(_WIN64)
+    #include <windows.h>
+    #include <bcrypt.h>
+    #pragma comment(lib, "bcrypt.lib")
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
+    #include <stdlib.h>
+#else
+    #define _GNU_SOURCE
+    #include <unistd.h>
+    #include <fcntl.h>
+    #include <sys/syscall.h>
+    #if defined(__has_include)
+        #if __has_include(<sys/random.h>)
+            #include <sys/random.h>
+        #endif
+    #endif
+#endif
+#endif
+
+int kheiron_os_entropy(void *buf, size_t len) {
+    if (!buf || len == 0) {
+        return 0;
+    }
+
+    uint8_t *p = (uint8_t *)buf;
+
+#ifndef KHEIRON_NO_OS_ENTROPY
+    size_t acquired = 0;
+
+#if defined(_WIN32) || defined(_WIN64)
+    if (BCryptGenRandom(NULL, p, (ULONG)len, BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0) {
+        return 0;
+    }
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
+    arc4random_buf(p, len);
+    return 0;
+#else
+#if defined(SYS_getrandom) || defined(GRND_NONBLOCK)
+    while (acquired < len) {
+        ssize_t ret;
+#if defined(GRND_NONBLOCK)
+        ret = getrandom(p + acquired, len - acquired, GRND_NONBLOCK);
+#else
+        ret = syscall(SYS_getrandom, p + acquired, len - acquired, 1);
+#endif
+        if (ret > 0) {
+            acquired += (size_t)ret;
+        } else {
+            break;
+        }
+    }
+#endif
+
+    if (acquired < len) {
+#if defined(O_CLOEXEC)
+        int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+#else
+        int fd = open("/dev/urandom", O_RDONLY | O_NONBLOCK);
+#endif
+        if (fd >= 0) {
+            while (acquired < len) {
+                ssize_t ret = read(fd, p + acquired, len - acquired);
+                if (ret > 0) {
+                    acquired += (size_t)ret;
+                } else {
+                    break;
+                }
+            }
+            close(fd);
+        }
+    }
+
+    if (acquired >= len) {
+        return 0;
+    }
+    p += acquired;
+    len -= acquired;
+#endif
+#endif
+
+    while (len > 0) {
+        uint64_t sample = kheiron_jitter_sample();
+        uint64_t t = kheiron_rdtsc();
+        sample ^= (t + (t << 13));
+        size_t chunk = len < sizeof(sample) ? len : sizeof(sample);
+        memcpy(p, &sample, chunk);
+        p += chunk;
+        len -= chunk;
+    }
+
+    return 0;
+}
 
 uint64_t kheiron_rdtsc(void) {
 #if defined(__x86_64__)
@@ -129,10 +224,21 @@ static void kheiron_init_state(void) {
     kheiron_state[2] = 0x79622d32;
     kheiron_state[3] = 0x6b206574;
 
+    uint8_t os_seed[32];
+    kheiron_os_entropy(os_seed, sizeof(os_seed));
+    for (int i = 0; i < 8; i++) {
+        uint32_t val = (uint32_t)os_seed[i * 4 + 0] |
+                       ((uint32_t)os_seed[i * 4 + 1] << 8) |
+                       ((uint32_t)os_seed[i * 4 + 2] << 16) |
+                       ((uint32_t)os_seed[i * 4 + 3] << 24);
+        kheiron_state[4 + i] = val;
+    }
+    kheiron_secure_wipe(os_seed, sizeof(os_seed));
+
     for (int i = 0; i < 4; i++) {
         uint64_t sample = kheiron_jitter_sample();
-        kheiron_state[4 + i * 2] = (uint32_t)(sample & 0xFFFFFFFF);
-        kheiron_state[4 + i * 2 + 1] = (uint32_t)(sample >> 32);
+        kheiron_state[4 + i * 2] ^= (uint32_t)(sample & 0xFFFFFFFF);
+        kheiron_state[4 + i * 2 + 1] ^= (uint32_t)(sample >> 32);
     }
 
     uint64_t t1 = kheiron_rdtsc();
@@ -293,9 +399,21 @@ int kheiron_reseed(const void *user_entropy, size_t len) {
         kheiron_init_state();
     }
 
+    uint8_t os_mix[32];
+    kheiron_os_entropy(os_mix, sizeof(os_mix));
+
     const uint8_t *p = (const uint8_t *)user_entropy;
     uint32_t temp_buf[16];
     memcpy(temp_buf, kheiron_state, sizeof(temp_buf));
+
+    for (int i = 0; i < 8; i++) {
+        uint32_t val = (uint32_t)os_mix[i * 4 + 0] |
+                       ((uint32_t)os_mix[i * 4 + 1] << 8) |
+                       ((uint32_t)os_mix[i * 4 + 2] << 16) |
+                       ((uint32_t)os_mix[i * 4 + 3] << 24);
+        temp_buf[4 + i] ^= val;
+    }
+    kheiron_secure_wipe(os_mix, sizeof(os_mix));
 
     for (size_t i = 0; i < len; i++) {
         size_t idx = 4 + ((i / 4) % 12);
