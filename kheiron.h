@@ -14,6 +14,7 @@ double kheiron_uniform_double(void);
 float kheiron_uniform_float(void);
 int kheiron_shuffle(void *base, size_t nmemb, size_t size);
 double kheiron_gaussian(double mean, double stddev);
+int kheiron_reseed(const void *user_entropy, size_t len);
 void kheiron_secure_wipe(void *v, size_t n);
 
 #ifdef KHEIRON_IMPLEMENTATION
@@ -99,40 +100,119 @@ static void kheiron_chacha_block(const uint32_t in[16], uint8_t out[64]) {
     kheiron_secure_wipe(x, sizeof(x));
 }
 
+static uint32_t kheiron_state[16];
+static int kheiron_initialized = 0;
+static size_t kheiron_bytes_generated = 0;
+
+static void kheiron_init_state(void) {
+    kheiron_state[0] = 0x61707865;
+    kheiron_state[1] = 0x3320646e;
+    kheiron_state[2] = 0x79622d32;
+    kheiron_state[3] = 0x6b206574;
+
+    for (int i = 0; i < 4; i++) {
+        uint64_t sample = kheiron_jitter_sample();
+        kheiron_state[4 + i * 2] = (uint32_t)(sample & 0xFFFFFFFF);
+        kheiron_state[4 + i * 2 + 1] = (uint32_t)(sample >> 32);
+    }
+
+    uint64_t t1 = kheiron_rdtsc();
+    uint64_t t2 = kheiron_rdtsc();
+    kheiron_state[12] = (uint32_t)(t1 & 0xFFFFFFFF);
+    kheiron_state[13] = (uint32_t)(t1 >> 32);
+    kheiron_state[14] = (uint32_t)(t2 & 0xFFFFFFFF);
+    kheiron_state[15] = (uint32_t)(t2 >> 32);
+
+    kheiron_initialized = 1;
+    kheiron_bytes_generated = 0;
+}
+
+static void kheiron_rotate_key(void) {
+    uint64_t t = kheiron_rdtsc();
+    kheiron_state[12] ^= (uint32_t)(t & 0xFFFFFFFF);
+    kheiron_state[13] ^= (uint32_t)(t >> 32);
+
+    uint8_t block[64];
+    kheiron_chacha_block(kheiron_state, block);
+
+    for (int i = 0; i < 8; i++) {
+        uint32_t k = (uint32_t)block[i * 4 + 0] |
+                     ((uint32_t)block[i * 4 + 1] << 8) |
+                     ((uint32_t)block[i * 4 + 2] << 16) |
+                     ((uint32_t)block[i * 4 + 3] << 24);
+        kheiron_state[4 + i] ^= k;
+    }
+
+    kheiron_state[14] += (uint32_t)(t & 0xFFFFFFFF);
+    kheiron_state[15] += (uint32_t)(t >> 32);
+
+    kheiron_secure_wipe(block, sizeof(block));
+    kheiron_bytes_generated = 0;
+}
+
+int kheiron_reseed(const void *user_entropy, size_t len) {
+    if (!user_entropy || len == 0) {
+        return -1;
+    }
+
+    if (!kheiron_initialized) {
+        kheiron_init_state();
+    }
+
+    const uint8_t *p = (const uint8_t *)user_entropy;
+    uint32_t temp_buf[16];
+    memcpy(temp_buf, kheiron_state, sizeof(temp_buf));
+
+    for (size_t i = 0; i < len; i++) {
+        size_t idx = 4 + ((i / 4) % 12);
+        size_t shift = (i % 4) * 8;
+        temp_buf[idx] ^= ((uint32_t)p[i] << shift);
+    }
+
+    uint64_t t = kheiron_rdtsc();
+    temp_buf[12] ^= (uint32_t)(t & 0xFFFFFFFF);
+    temp_buf[13] ^= (uint32_t)(t >> 32);
+
+    uint8_t out_block[64];
+    kheiron_chacha_block(temp_buf, out_block);
+
+    for (int i = 0; i < 8; i++) {
+        uint32_t k = (uint32_t)out_block[i * 4 + 0] |
+                     ((uint32_t)out_block[i * 4 + 1] << 8) |
+                     ((uint32_t)out_block[i * 4 + 2] << 16) |
+                     ((uint32_t)out_block[i * 4 + 3] << 24);
+        kheiron_state[4 + i] ^= k;
+    }
+
+    kheiron_secure_wipe(out_block, sizeof(out_block));
+    kheiron_secure_wipe(temp_buf, sizeof(temp_buf));
+    kheiron_bytes_generated = 0;
+    return 0;
+}
+
 int kheiron_fill(void *buf, size_t len) {
     if (!buf || len == 0) {
         return -1;
     }
 
-    uint32_t ctx[16];
-    ctx[0] = 0x61707865;
-    ctx[1] = 0x3320646e;
-    ctx[2] = 0x79622d32;
-    ctx[3] = 0x6b206574;
-
-    for (int i = 0; i < 4; i++) {
-        uint64_t sample = kheiron_jitter_sample();
-        ctx[4 + i * 2] = (uint32_t)(sample & 0xFFFFFFFF);
-        ctx[4 + i * 2 + 1] = (uint32_t)(sample >> 32);
+    if (!kheiron_initialized) {
+        kheiron_init_state();
     }
-
-    uint64_t t1 = kheiron_rdtsc();
-    uint64_t t2 = kheiron_rdtsc();
-    ctx[12] = (uint32_t)(t1 & 0xFFFFFFFF);
-    ctx[13] = (uint32_t)(t1 >> 32);
-    ctx[14] = (uint32_t)(t2 & 0xFFFFFFFF);
-    ctx[15] = (uint32_t)(t2 >> 32);
 
     uint8_t *p = (uint8_t *)buf;
     size_t remaining = len;
     uint8_t keystream[64];
 
     while (remaining > 0) {
-        kheiron_chacha_block(ctx, keystream);
+        if ((kheiron_bytes_generated & ~0xFFFFFUL) != 0 || kheiron_bytes_generated >= 1048576) {
+            kheiron_rotate_key();
+        }
 
-        ctx[12]++;
-        if (ctx[12] == 0) {
-            ctx[13]++;
+        kheiron_chacha_block(kheiron_state, keystream);
+
+        kheiron_state[12]++;
+        if (kheiron_state[12] == 0) {
+            kheiron_state[13]++;
         }
 
         size_t chunk = remaining < 64 ? remaining : 64;
@@ -142,11 +222,10 @@ int kheiron_fill(void *buf, size_t len) {
 
         p += chunk;
         remaining -= chunk;
+        kheiron_bytes_generated += chunk;
     }
 
     kheiron_secure_wipe(keystream, sizeof(keystream));
-    kheiron_secure_wipe(ctx, sizeof(ctx));
-
     return 0;
 }
 
