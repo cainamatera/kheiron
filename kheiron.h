@@ -52,24 +52,34 @@ KHEIRON_API uint32_t kheiron_consttime_select_u32(uint32_t mask, uint32_t a, uin
 
 #include <math.h>
 
-#ifndef KHEIRON_NO_OS_ENTROPY
 #if defined(_WIN32) || defined(_WIN64)
     #include <windows.h>
+#ifndef KHEIRON_NO_OS_ENTROPY
     #include <bcrypt.h>
     #pragma comment(lib, "bcrypt.lib")
+#endif
 #elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
     #include <stdlib.h>
+    #include <unistd.h>
+    #include <sys/mman.h>
+    #include <pthread.h>
 #else
-    #define _GNU_SOURCE
+    #if !defined(_GNU_SOURCE)
+        #define _GNU_SOURCE
+    #endif
+    #if !defined(_POSIX_C_SOURCE)
+        #define _POSIX_C_SOURCE 200809L
+    #endif
     #include <unistd.h>
     #include <fcntl.h>
     #include <sys/syscall.h>
+    #include <sys/mman.h>
+    #include <pthread.h>
     #if defined(__has_include)
         #if __has_include(<sys/random.h>)
             #include <sys/random.h>
         #endif
     #endif
-#endif
 #endif
 
 KHEIRON_API int kheiron_os_entropy(void *buf, size_t len) {
@@ -225,9 +235,53 @@ static inline void kheiron_chacha_block(const uint32_t in[16], uint8_t out[64]) 
     kheiron_secure_wipe(x, sizeof(x));
 }
 
+static inline void kheiron_protect_memory(void *addr, size_t len) {
+#if defined(_WIN32) || defined(_WIN64)
+    VirtualLock(addr, len);
+#else
+#if defined(MADV_WIPEONFORK) || defined(MADV_DONTDUMP)
+    if (addr && len > 0) {
+        long page_size = sysconf(_SC_PAGESIZE);
+        if (page_size > 0) {
+            uintptr_t start = (uintptr_t)addr;
+            uintptr_t end = start + len;
+            uintptr_t page_start = start & ~((uintptr_t)page_size - 1);
+            uintptr_t page_end = (end + (uintptr_t)page_size - 1) & ~((uintptr_t)page_size - 1);
+            size_t page_len = (size_t)(page_end - page_start);
+#if defined(MADV_WIPEONFORK)
+            (void)madvise((void *)page_start, page_len, MADV_WIPEONFORK);
+#endif
+#if defined(MADV_DONTDUMP)
+            (void)madvise((void *)page_start, page_len, MADV_DONTDUMP);
+#endif
+        }
+    }
+#else
+    (void)addr;
+    (void)len;
+#endif
+#endif
+}
+
 static KHEIRON_THREAD_LOCAL uint32_t kheiron_state[16];
 static KHEIRON_THREAD_LOCAL int kheiron_initialized = 0;
 static KHEIRON_THREAD_LOCAL size_t kheiron_bytes_generated = 0;
+#if !defined(_WIN32) && !defined(_WIN64)
+static int kheiron_atfork_registered = 0;
+#endif
+
+static void kheiron_atfork_child(void) {
+    kheiron_initialized = 0;
+    kheiron_secure_wipe(kheiron_state, sizeof(kheiron_state));
+    uint8_t child_entropy[32];
+    kheiron_os_entropy(child_entropy, sizeof(child_entropy));
+    uint64_t t = kheiron_rdtsc();
+    for (int i = 0; i < 8; i++) {
+        child_entropy[i] ^= (uint8_t)((t >> (i * 8)) & 0xFF);
+    }
+    kheiron_reseed(child_entropy, sizeof(child_entropy));
+    kheiron_secure_wipe(child_entropy, sizeof(child_entropy));
+}
 
 KHEIRON_API int kheiron_selftest(void) {
     const uint32_t rfc_state[16] = {
@@ -298,6 +352,14 @@ static inline void kheiron_init_state(void) {
     kheiron_state[14] = (uint32_t)(t2 & 0xFFFFFFFF);
     kheiron_state[15] = (uint32_t)(t2 >> 32);
 
+#if !defined(_WIN32) && !defined(_WIN64)
+    if (!kheiron_atfork_registered) {
+        if (pthread_atfork(NULL, NULL, kheiron_atfork_child) == 0) {
+            kheiron_atfork_registered = 1;
+        }
+    }
+#endif
+
     kheiron_initialized = 1;
     kheiron_bytes_generated = 0;
 }
@@ -318,6 +380,7 @@ static inline void kheiron_rotate_key(void) {
         kheiron_state[4 + i] ^= k;
     }
 
+    kheiron_protect_memory(block, sizeof(block));
     kheiron_state[14] += (uint32_t)(t & 0xFFFFFFFF);
     kheiron_state[15] += (uint32_t)(t >> 32);
 
@@ -395,6 +458,7 @@ KHEIRON_API int kheiron_ctx_init(kheiron_ctx_t *ctx, const void *seed, size_t se
         ctx->state[15] = (uint32_t)(t2 >> 32);
     }
 
+    kheiron_protect_memory(ctx->state, sizeof(ctx->state));
     ctx->bytes_generated = 0;
     return 0;
 }

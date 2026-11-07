@@ -1,4 +1,9 @@
-#define _POSIX_C_SOURCE 199309L
+#if !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
+#if !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
 #define KHEIRON_IMPLEMENTATION
 #include "kheiron.h"
 #include <stdio.h>
@@ -8,6 +13,11 @@
 #include <time.h>
 #include <math.h>
 #include <pthread.h>
+#if !defined(_WIN32) && !defined(_WIN64)
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#endif
 
 #define THREAD_COUNT 8
 #define THREAD_BUF_SIZE 65536
@@ -79,6 +89,44 @@ int main(int argc, char *argv[]) {
     if (static_link_res != 0) {
         failed = 1;
     }
+
+#if !defined(_WIN32) && !defined(_WIN64)
+    int fork_ok = 0;
+    int fds[2];
+    if (pipe(fds) == 0) {
+        pid_t pid = fork();
+        if (pid == 0) {
+            close(fds[0]);
+            uint8_t child_bytes[64];
+            kheiron_fill(child_bytes, sizeof(child_bytes));
+            ssize_t w = write(fds[1], child_bytes, sizeof(child_bytes));
+            close(fds[1]);
+            (void)w;
+            exit(0);
+        } else if (pid > 0) {
+            close(fds[1]);
+            uint8_t parent_bytes[64];
+            uint8_t child_bytes[64];
+            kheiron_fill(parent_bytes, sizeof(parent_bytes));
+            ssize_t r = read(fds[0], child_bytes, sizeof(child_bytes));
+            close(fds[0]);
+            int status = 0;
+            waitpid(pid, &status, 0);
+            if (r == (ssize_t)sizeof(child_bytes) && WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+                if (kheiron_consttime_cmp(parent_bytes, child_bytes, sizeof(parent_bytes)) != 0) {
+                    fork_ok = 1;
+                }
+            }
+        } else {
+            close(fds[0]);
+            close(fds[1]);
+        }
+    }
+    printf("Fork Safety: %s\n", fork_ok ? "APROVADO" : "REPROVADO");
+    if (!fork_ok) {
+        failed = 1;
+    }
+#endif
 
     uint64_t n_samples = is_strict ? 10000000ULL : 100000ULL;
     double expected = (double)n_samples / 100.0;
