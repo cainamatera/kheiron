@@ -387,5 +387,40 @@ int main(int argc, char *argv[]) {
         failed = 1;
     }
 
+    kheiron_ctx_t root_ctx;
+    uint8_t root_seed[32] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    kheiron_ctx_init(&root_ctx, root_seed, sizeof(root_seed));
+
+    kheiron_ctx_t root_backup;
+    memcpy(&root_backup, &root_ctx, sizeof(root_backup));
+
+    uint8_t key1[32];
+    uint8_t key2[32];
+    const char info1[] = "auth-token-v1";
+    const char info2[] = "encryption-key-v1";
+
+    int d1 = kheiron_derive(&root_ctx, key1, sizeof(key1), info1, strlen(info1));
+    int d2 = kheiron_derive(&root_ctx, key2, sizeof(key2), info2, strlen(info2));
+
+    int derive_diff = (kheiron_consttime_cmp(key1, key2, sizeof(key1)) != 0);
+    int root_preserved = (memcmp(&root_ctx, &root_backup, sizeof(root_ctx)) == 0);
+
+    int err_null_ctx = (kheiron_derive(NULL, key1, sizeof(key1), info1, strlen(info1)) == -1);
+    int err_null_out = (kheiron_derive(&root_ctx, NULL, sizeof(key1), info1, strlen(info1)) == -1);
+    int err_zero_len = (kheiron_derive(&root_ctx, key1, 0, info1, strlen(info1)) == -1);
+    int err_null_info = (kheiron_derive(&root_ctx, key1, sizeof(key1), NULL, 10) == -1);
+    int err_zero_info = (kheiron_derive(&root_ctx, key1, sizeof(key1), info1, 0) == -1);
+
+    int derive_ok = (d1 == 0 && d2 == 0 && derive_diff && root_preserved &&
+                     err_null_ctx && err_null_out && err_zero_len && err_null_info && err_zero_info);
+
+    printf("kheiron_derive: %s\n", derive_ok ? "APROVADO" : "REPROVADO");
+    if (!derive_ok) {
+        failed = 1;
+    }
+
+    kheiron_ctx_wipe(&root_ctx);
+    kheiron_ctx_wipe(&root_backup);
+
     return failed ? 1 : 0;
 }

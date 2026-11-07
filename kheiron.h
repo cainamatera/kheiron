@@ -23,6 +23,7 @@ typedef struct kheiron_ctx {
 int kheiron_ctx_init(kheiron_ctx_t *ctx, const void *seed, size_t seed_len);
 int kheiron_ctx_fill(kheiron_ctx_t *ctx, void *buf, size_t len);
 void kheiron_ctx_wipe(kheiron_ctx_t *ctx);
+int kheiron_derive(kheiron_ctx_t *ctx, void *out, size_t out_len, const void *info, size_t info_len);
 
 uint64_t kheiron_rdtsc(void);
 uint64_t kheiron_jitter_sample(void);
@@ -390,6 +391,32 @@ void kheiron_ctx_wipe(kheiron_ctx_t *ctx) {
     if (ctx) {
         kheiron_secure_wipe(ctx, sizeof(*ctx));
     }
+}
+
+int kheiron_derive(kheiron_ctx_t *ctx, void *out, size_t out_len, const void *info, size_t info_len) {
+    if (!ctx || !out || out_len == 0 || !info || info_len == 0) {
+        return -1;
+    }
+
+    kheiron_ctx_t temp_ctx;
+    memcpy(&temp_ctx, ctx, sizeof(temp_ctx));
+
+    const uint8_t *inf = (const uint8_t *)info;
+    for (size_t i = 0; i < info_len; i++) {
+        size_t idx = 4 + ((i / 4) % 12);
+        size_t shift = (i % 4) * 8;
+        temp_ctx.state[idx] ^= ((uint32_t)inf[i] << shift);
+    }
+
+    kheiron_ctx_rotate(&temp_ctx);
+
+    if (kheiron_ctx_fill(&temp_ctx, out, out_len) != 0) {
+        kheiron_ctx_wipe(&temp_ctx);
+        return -1;
+    }
+
+    kheiron_ctx_wipe(&temp_ctx);
+    return 0;
 }
 
 int kheiron_reseed(const void *user_entropy, size_t len) {
