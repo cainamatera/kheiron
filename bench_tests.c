@@ -47,6 +47,17 @@ static void *thread_worker(void *arg) {
     return NULL;
 }
 
+static int simulate_static_linkage(void) {
+    uint8_t s_buf[32];
+    if (kheiron_selftest() != 0) {
+        return -1;
+    }
+    if (kheiron_fill(s_buf, sizeof(s_buf)) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     int failed = 0;
     int is_strict = 0;
@@ -55,6 +66,18 @@ int main(int argc, char *argv[]) {
         if (strcmp(argv[i], "--strict") == 0) {
             is_strict = 1;
         }
+    }
+
+    int selftest_res = kheiron_selftest();
+    printf("kheiron_selftest: %s\n", selftest_res == 0 ? "APROVADO" : "REPROVADO");
+    if (selftest_res != 0) {
+        failed = 1;
+    }
+
+    int static_link_res = simulate_static_linkage();
+    printf("KHEIRON_STATIC linkage simulation: %s\n", static_link_res == 0 ? "APROVADO" : "REPROVADO");
+    if (static_link_res != 0) {
+        failed = 1;
     }
 
     uint64_t n_samples = is_strict ? 10000000ULL : 100000ULL;
