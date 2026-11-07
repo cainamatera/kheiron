@@ -676,14 +676,14 @@ KHEIRON_API uint64_t kheiron_range_u64(uint64_t min, uint64_t max) {
 
     uint64_t s = max - min + 1ULL;
     if (s == 0) {
-        uint64_t val;
+        uint64_t val = 0;
         kheiron_fill(&val, sizeof(val));
         return val;
     }
 
     uint64_t t = -s % s;
     for (;;) {
-        uint64_t x;
+        uint64_t x = 0;
         kheiron_fill(&x, sizeof(x));
         __uint128_t m = (__uint128_t)x * (__uint128_t)s;
         uint64_t l = (uint64_t)m;
@@ -694,13 +694,13 @@ KHEIRON_API uint64_t kheiron_range_u64(uint64_t min, uint64_t max) {
 }
 
 KHEIRON_API double kheiron_uniform_double(void) {
-    uint64_t r;
+    uint64_t r = 0;
     kheiron_fill(&r, sizeof(r));
     return (double)(r >> 11) * 0x1.0p-53;
 }
 
 KHEIRON_API float kheiron_uniform_float(void) {
-    uint32_t r;
+    uint32_t r = 0;
     kheiron_fill(&r, sizeof(r));
     return (float)(r >> 8) * 0x1.0p-24f;
 }

@@ -1,2 +1,6 @@
 test_kheiron
 bench_tests
+bench_tests.exe
+*.o
+*.out
+*.exe
