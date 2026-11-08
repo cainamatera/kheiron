@@ -1,6 +1,9 @@
 CC ?= gcc
 CFLAGS ?= -std=c99 -O2 -Wall -Wextra -Wpedantic -Werror
 LDFLAGS ?= -lm -pthread
+ifeq ($(OS),Windows_NT)
+LDFLAGS += -lbcrypt
+endif
 TARGET = bench_tests
 SRC = bench_tests.c
 

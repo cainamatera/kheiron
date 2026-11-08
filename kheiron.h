@@ -56,9 +56,11 @@ KHEIRON_API uint32_t kheiron_consttime_select_u32(uint32_t mask, uint32_t a, uin
     #include <windows.h>
 #ifndef KHEIRON_NO_OS_ENTROPY
     #include <bcrypt.h>
+    #if defined(_MSC_VER)
     #pragma comment(lib, "bcrypt.lib")
+    #endif
 #endif
-#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
+#elif defined(__APPLE__) || defined(__MACH__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
     #include <stdlib.h>
     #include <unistd.h>
     #include <sys/mman.h>
@@ -96,7 +98,8 @@ KHEIRON_API int kheiron_os_entropy(void *buf, size_t len) {
     if (BCryptGenRandom(NULL, p, (ULONG)len, BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0) {
         return 0;
     }
-#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
+#elif defined(__APPLE__) || defined(__MACH__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
+    (void)acquired;
     arc4random_buf(p, len);
     return 0;
 #else
@@ -266,9 +269,8 @@ static inline void kheiron_protect_memory(void *addr, size_t len) {
 static KHEIRON_THREAD_LOCAL uint32_t kheiron_state[16];
 static KHEIRON_THREAD_LOCAL int kheiron_initialized = 0;
 static KHEIRON_THREAD_LOCAL size_t kheiron_bytes_generated = 0;
-#if !defined(_WIN32) && !defined(_WIN64)
+#if defined(__unix__) || defined(__APPLE__) || defined(__HAIKU__)
 static int kheiron_atfork_registered = 0;
-#endif
 
 static void kheiron_atfork_child(void) {
     kheiron_initialized = 0;
@@ -282,6 +284,7 @@ static void kheiron_atfork_child(void) {
     kheiron_reseed(child_entropy, sizeof(child_entropy));
     kheiron_secure_wipe(child_entropy, sizeof(child_entropy));
 }
+#endif
 
 KHEIRON_API int kheiron_selftest(void) {
     const uint32_t rfc_state[16] = {
@@ -352,7 +355,7 @@ static inline void kheiron_init_state(void) {
     kheiron_state[14] = (uint32_t)(t2 & 0xFFFFFFFF);
     kheiron_state[15] = (uint32_t)(t2 >> 32);
 
-#if !defined(_WIN32) && !defined(_WIN64)
+#if defined(__unix__) || defined(__APPLE__) || defined(__HAIKU__)
     if (!kheiron_atfork_registered) {
         if (pthread_atfork(NULL, NULL, kheiron_atfork_child) == 0) {
             kheiron_atfork_registered = 1;

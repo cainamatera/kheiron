@@ -43,5 +43,5 @@ jobs:
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          ${{ matrix.compiler }} -std=${{ matrix.std }} -O2 -Wall -Wextra -Wpedantic -Werror bench_tests.c -o bench_tests.exe
+          ${{ matrix.compiler }} -std=${{ matrix.std }} -O2 -Wall -Wextra -Wpedantic -Werror bench_tests.c -o bench_tests.exe -lm -pthread -lbcrypt
           ./bench_tests.exe --quick
