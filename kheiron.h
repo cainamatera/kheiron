@@ -1,6 +1,10 @@
 #ifndef KHEIRON_H
 #define KHEIRON_H
 
+#if !defined(_DARWIN_C_SOURCE)
+#define _DARWIN_C_SOURCE 1
+#endif
+
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -65,6 +69,10 @@ KHEIRON_API uint32_t kheiron_consttime_select_u32(uint32_t mask, uint32_t a, uin
     #include <unistd.h>
     #include <sys/mman.h>
     #include <pthread.h>
+    #if defined(__APPLE__) || defined(__MACH__)
+        #include <sys/random.h>
+        extern void arc4random_buf(void *buf, size_t nbytes);
+    #endif
 #else
     #if !defined(_GNU_SOURCE)
         #define _GNU_SOURCE
@@ -93,13 +101,13 @@ KHEIRON_API int kheiron_os_entropy(void *buf, size_t len) {
 
 #ifndef KHEIRON_NO_OS_ENTROPY
     size_t acquired = 0;
+    (void)acquired;
 
 #if defined(_WIN32) || defined(_WIN64)
     if (BCryptGenRandom(NULL, p, (ULONG)len, BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0) {
         return 0;
     }
 #elif defined(__APPLE__) || defined(__MACH__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
-    (void)acquired;
     arc4random_buf(p, len);
     return 0;
 #else
