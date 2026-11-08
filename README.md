@@ -1,6 +1,6 @@
 # Kheiron
 
-[![CI](https://github.com/nyoex/kheiron/actions/workflows/ci.yml/badge.svg)](https://github.com/nyoex/kheiron/actions/workflows/ci.yml)
+[![CI](https://github.com/cainamatera/kheiron/actions/workflows/ci.yml/badge.svg)](https://github.com/cainamatera/kheiron/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Standards: C99 / C11](https://img.shields.io/badge/Standards-C99%20%2F%20C11-brightgreen.svg)](#)
 [![Zero Dependency](https://img.shields.io/badge/Dependencies-Zero-orange.svg)](#)
