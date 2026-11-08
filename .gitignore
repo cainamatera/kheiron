@@ -1,6 +1,8 @@
 test_kheiron
 bench_tests
 bench_tests.exe
+examples/quickstart
+examples/quickstart.exe
 *.o
 *.out
 *.exe
