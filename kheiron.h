@@ -32,6 +32,7 @@ typedef struct kheiron_ctx {
 #endif
 #endif
 KHEIRON_API int kheiron_selftest(void);
+KHEIRON_API int kheiron_init(void);
 KHEIRON_API int kheiron_ctx_init(kheiron_ctx_t *ctx, const void *seed, size_t seed_len);
 KHEIRON_API int kheiron_ctx_fill(kheiron_ctx_t *ctx, void *buf, size_t len);
 KHEIRON_API void kheiron_ctx_wipe(kheiron_ctx_t *ctx);
@@ -40,6 +41,8 @@ KHEIRON_API int kheiron_derive(kheiron_ctx_t *ctx, void *out, size_t out_len, co
 KHEIRON_API uint64_t kheiron_rdtsc(void);
 KHEIRON_API uint64_t kheiron_jitter_sample(void);
 KHEIRON_API int kheiron_fill(void *buf, size_t len);
+KHEIRON_API uint64_t kheiron_u64(void);
+KHEIRON_API uint32_t kheiron_u32(void);
 KHEIRON_API int kheiron_string(char *dest, size_t len, const char *charset);
 KHEIRON_API uint64_t kheiron_range_u64(uint64_t min, uint64_t max);
 KHEIRON_API double kheiron_uniform_double(void);
@@ -55,6 +58,31 @@ KHEIRON_API uint32_t kheiron_consttime_select_u32(uint32_t mask, uint32_t a, uin
 #if defined(KHEIRON_IMPLEMENTATION) || defined(KHEIRON_STATIC) || !defined(KHEIRON_HEADER_ONLY)
 
 #include <math.h>
+
+/* ========================================================================= */
+/* KHEIRON AVX2 VECTORIZATION & PORTABILITY DISPATCH                         */
+/* ========================================================================= */
+
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && !defined(KHEIRON_NO_AVX2)
+    #define KHEIRON_HAVE_AVX2 1
+    #include <immintrin.h>
+    #if defined(__clang__)
+        #define KHEIRON_TARGET_AVX2 __attribute__((target("avx2")))
+    #elif defined(__GNUC__)
+        #define KHEIRON_TARGET_AVX2 __attribute__((__target__("avx2")))
+    #else
+        #define KHEIRON_TARGET_AVX2
+    #endif
+#else
+    #define KHEIRON_HAVE_AVX2 0
+    #define KHEIRON_TARGET_AVX2
+#endif
+
+#if KHEIRON_HAVE_AVX2
+static inline int kheiron_cpu_has_avx2(void) {
+    return __builtin_cpu_supports("avx2");
+}
+#endif
 
 #if defined(_WIN32) || defined(_WIN64)
     #include <windows.h>
@@ -203,7 +231,11 @@ KHEIRON_API void kheiron_secure_wipe(void *v, size_t n) {
     while (n--) {
         *p++ = 0;
     }
-    __asm__ __volatile__("" : : "r"(p) : "memory");
+#if defined(__GNUC__) || defined(__clang__)
+    __asm__ __volatile__("" : : "r"(v) : "memory");
+#elif defined(_MSC_VER)
+    SecureZeroMemory(v, n);
+#endif
 }
 
 static inline uint32_t kheiron_rotl32(uint32_t x, int n) {
@@ -246,6 +278,144 @@ static inline void kheiron_chacha_block(const uint32_t in[16], uint8_t out[64]) 
     kheiron_secure_wipe(x, sizeof(x));
 }
 
+#if KHEIRON_HAVE_AVX2
+
+#define KHEIRON_CHACHA20_QROUND_AVX2(a, b, c, d, rot16, rot8) do { \
+    a = _mm256_add_epi32(a, b); \
+    d = _mm256_xor_si256(d, a); \
+    d = _mm256_shuffle_epi8(d, rot16); \
+    \
+    c = _mm256_add_epi32(c, d); \
+    b = _mm256_xor_si256(b, c); \
+    b = _mm256_or_si256(_mm256_slli_epi32(b, 12), _mm256_srli_epi32(b, 20)); \
+    \
+    a = _mm256_add_epi32(a, b); \
+    d = _mm256_xor_si256(d, a); \
+    d = _mm256_shuffle_epi8(d, rot8); \
+    \
+    c = _mm256_add_epi32(c, d); \
+    b = _mm256_xor_si256(b, c); \
+    b = _mm256_or_si256(_mm256_slli_epi32(b, 7),  _mm256_srli_epi32(b, 25)); \
+} while(0)
+
+KHEIRON_TARGET_AVX2
+static inline void kheiron_transpose8x8(__m256i r[8]) {
+    __m256i t0 = _mm256_unpacklo_epi32(r[0], r[1]);
+    __m256i t1 = _mm256_unpackhi_epi32(r[0], r[1]);
+    __m256i t2 = _mm256_unpacklo_epi32(r[2], r[3]);
+    __m256i t3 = _mm256_unpackhi_epi32(r[2], r[3]);
+    __m256i t4 = _mm256_unpacklo_epi32(r[4], r[5]);
+    __m256i t5 = _mm256_unpackhi_epi32(r[4], r[5]);
+    __m256i t6 = _mm256_unpacklo_epi32(r[6], r[7]);
+    __m256i t7 = _mm256_unpackhi_epi32(r[6], r[7]);
+
+    __m256i tt0 = _mm256_unpacklo_epi64(t0, t2);
+    __m256i tt1 = _mm256_unpackhi_epi64(t0, t2);
+    __m256i tt2 = _mm256_unpacklo_epi64(t1, t3);
+    __m256i tt3 = _mm256_unpackhi_epi64(t1, t3);
+    __m256i tt4 = _mm256_unpacklo_epi64(t4, t6);
+    __m256i tt5 = _mm256_unpackhi_epi64(t4, t6);
+    __m256i tt6 = _mm256_unpacklo_epi64(t5, t7);
+    __m256i tt7 = _mm256_unpackhi_epi64(t5, t7);
+
+    r[0] = _mm256_permute2x128_si256(tt0, tt4, 0x20);
+    r[1] = _mm256_permute2x128_si256(tt1, tt5, 0x20);
+    r[2] = _mm256_permute2x128_si256(tt2, tt6, 0x20);
+    r[3] = _mm256_permute2x128_si256(tt3, tt7, 0x20);
+    r[4] = _mm256_permute2x128_si256(tt0, tt4, 0x31);
+    r[5] = _mm256_permute2x128_si256(tt1, tt5, 0x31);
+    r[6] = _mm256_permute2x128_si256(tt2, tt6, 0x31);
+    r[7] = _mm256_permute2x128_si256(tt3, tt7, 0x31);
+}
+
+KHEIRON_TARGET_AVX2
+static void kheiron_chacha20_8blocks_avx2(const uint32_t state[16], uint8_t *out) {
+    const __m256i rot16 = _mm256_setr_epi8(
+        2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9, 14, 15, 12, 13,
+        2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9, 14, 15, 12, 13
+    );
+    const __m256i rot8 = _mm256_setr_epi8(
+        3, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14,
+        3, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14
+    );
+
+    __m256i v[16];
+    for (int i = 0; i < 12; i++) {
+        v[i] = _mm256_set1_epi32((int)state[i]);
+    }
+
+    if (__builtin_expect(state[12] <= 0xFFFFFFF8U, 1)) {
+        const __m256i ctr_offsets = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
+        v[12] = _mm256_add_epi32(_mm256_set1_epi32((int)state[12]), ctr_offsets);
+        v[13] = _mm256_set1_epi32((int)state[13]);
+    } else {
+        uint32_t c12[8], c13[8];
+        uint64_t ctr = (uint64_t)state[12] | ((uint64_t)state[13] << 32);
+        for (int i = 0; i < 8; i++) {
+            uint64_t c = ctr + (uint64_t)i;
+            c12[i] = (uint32_t)c;
+            c13[i] = (uint32_t)(c >> 32);
+        }
+        v[12] = _mm256_loadu_si256((const __m256i *)(const void *)c12);
+        v[13] = _mm256_loadu_si256((const __m256i *)(const void *)c13);
+    }
+
+    v[14] = _mm256_set1_epi32((int)state[14]);
+    v[15] = _mm256_set1_epi32((int)state[15]);
+
+    __m256i orig12 = v[12];
+    __m256i orig13 = v[13];
+
+    for (int i = 0; i < 10; i++) {
+        KHEIRON_CHACHA20_QROUND_AVX2(v[0], v[4], v[8],  v[12], rot16, rot8);
+        KHEIRON_CHACHA20_QROUND_AVX2(v[1], v[5], v[9],  v[13], rot16, rot8);
+        KHEIRON_CHACHA20_QROUND_AVX2(v[2], v[6], v[10], v[14], rot16, rot8);
+        KHEIRON_CHACHA20_QROUND_AVX2(v[3], v[7], v[11], v[15], rot16, rot8);
+
+        KHEIRON_CHACHA20_QROUND_AVX2(v[0], v[5], v[10], v[15], rot16, rot8);
+        KHEIRON_CHACHA20_QROUND_AVX2(v[1], v[6], v[11], v[12], rot16, rot8);
+        KHEIRON_CHACHA20_QROUND_AVX2(v[2], v[7], v[8],  v[13], rot16, rot8);
+        KHEIRON_CHACHA20_QROUND_AVX2(v[3], v[4], v[9],  v[14], rot16, rot8);
+    }
+
+    for (int i = 0; i < 12; i++) {
+        v[i] = _mm256_add_epi32(v[i], _mm256_set1_epi32((int)state[i]));
+    }
+    v[12] = _mm256_add_epi32(v[12], orig12);
+    v[13] = _mm256_add_epi32(v[13], orig13);
+    v[14] = _mm256_add_epi32(v[14], _mm256_set1_epi32((int)state[14]));
+    v[15] = _mm256_add_epi32(v[15], _mm256_set1_epi32((int)state[15]));
+
+    kheiron_transpose8x8(&v[0]);
+    kheiron_transpose8x8(&v[8]);
+
+    for (int b = 0; b < 8; b++) {
+        _mm256_storeu_si256((__m256i *)(void *)(out + b * 64 + 0),  v[b]);
+        _mm256_storeu_si256((__m256i *)(void *)(out + b * 64 + 32), v[b + 8]);
+    }
+
+    for (int i = 0; i < 16; i++) {
+        v[i] = _mm256_setzero_si256();
+    }
+    orig12 = _mm256_setzero_si256();
+    orig13 = _mm256_setzero_si256();
+    __asm__ __volatile__("" : : "m"(v), "m"(orig12), "m"(orig13) : "memory");
+}
+
+KHEIRON_TARGET_AVX2
+static inline void kheiron_chacha20_blocks_avx2(uint32_t state[16], uint8_t *out, size_t num_blocks) {
+    while (num_blocks >= 8) {
+        kheiron_chacha20_8blocks_avx2(state, out);
+        out += 512;
+        num_blocks -= 8;
+        uint64_t ctr = ((uint64_t)state[12] | ((uint64_t)state[13] << 32)) + 8;
+        state[12] = (uint32_t)ctr;
+        state[13] = (uint32_t)(ctr >> 32);
+    }
+    _mm256_zeroupper();
+}
+#endif
+
 static inline void kheiron_protect_memory(void *addr, size_t len) {
 #if defined(_WIN32) || defined(_WIN64)
     VirtualLock(addr, len);
@@ -274,14 +444,17 @@ static inline void kheiron_protect_memory(void *addr, size_t len) {
 #endif
 }
 
+#define KHEIRON_KEY_ROTATION_THRESHOLD (1024 * 1024) /* 1 MB = 1,048,576 bytes */
+
 static KHEIRON_THREAD_LOCAL uint32_t kheiron_state[16];
 static KHEIRON_THREAD_LOCAL int kheiron_initialized = 0;
 static KHEIRON_THREAD_LOCAL size_t kheiron_bytes_generated = 0;
 #if defined(__unix__) || defined(__APPLE__) || defined(__HAIKU__)
-static int kheiron_atfork_registered = 0;
+static pthread_once_t kheiron_atfork_once = PTHREAD_ONCE_INIT;
 
 static void kheiron_atfork_child(void) {
     kheiron_initialized = 0;
+    kheiron_bytes_generated = 0;
     kheiron_secure_wipe(kheiron_state, sizeof(kheiron_state));
     uint8_t child_entropy[32];
     kheiron_os_entropy(child_entropy, sizeof(child_entropy));
@@ -291,6 +464,10 @@ static void kheiron_atfork_child(void) {
     }
     kheiron_reseed(child_entropy, sizeof(child_entropy));
     kheiron_secure_wipe(child_entropy, sizeof(child_entropy));
+}
+
+static void kheiron_register_atfork(void) {
+    (void)pthread_atfork(NULL, NULL, kheiron_atfork_child);
 }
 #endif
 
@@ -364,11 +541,7 @@ static inline void kheiron_init_state(void) {
     kheiron_state[15] = (uint32_t)(t2 >> 32);
 
 #if defined(__unix__) || defined(__APPLE__) || defined(__HAIKU__)
-    if (!kheiron_atfork_registered) {
-        if (pthread_atfork(NULL, NULL, kheiron_atfork_child) == 0) {
-            kheiron_atfork_registered = 1;
-        }
-    }
+    (void)pthread_once(&kheiron_atfork_once, kheiron_register_atfork);
 #endif
 
     kheiron_initialized = 1;
@@ -391,7 +564,6 @@ static inline void kheiron_rotate_key(void) {
         kheiron_state[4 + i] ^= k;
     }
 
-    kheiron_protect_memory(block, sizeof(block));
     kheiron_state[14] += (uint32_t)(t & 0xFFFFFFFF);
     kheiron_state[15] += (uint32_t)(t >> 32);
 
@@ -475,37 +647,66 @@ KHEIRON_API int kheiron_ctx_init(kheiron_ctx_t *ctx, const void *seed, size_t se
 }
 
 KHEIRON_API int kheiron_ctx_fill(kheiron_ctx_t *ctx, void *buf, size_t len) {
-    if (!ctx || !buf || len == 0) {
+    if (!ctx || !buf) {
         return -1;
+    }
+    if (len == 0) {
+        return 0;
     }
 
     uint8_t *p = (uint8_t *)buf;
     size_t remaining = len;
-    uint8_t keystream[64];
 
     while (remaining > 0) {
-        if ((ctx->bytes_generated & ~0xFFFFFUL) != 0 || ctx->bytes_generated >= 1048576) {
+        if (ctx->bytes_generated >= KHEIRON_KEY_ROTATION_THRESHOLD) {
             kheiron_ctx_rotate(ctx);
         }
 
-        kheiron_chacha_block(ctx->state, keystream);
+        size_t available_in_epoch = KHEIRON_KEY_ROTATION_THRESHOLD - ctx->bytes_generated;
+        size_t chunk_limit = remaining < available_in_epoch ? remaining : available_in_epoch;
 
+#if KHEIRON_HAVE_AVX2
+        if (kheiron_cpu_has_avx2() && chunk_limit >= 512) {
+            size_t avx_iters = chunk_limit / 512;
+            size_t avx_bytes = avx_iters * 512;
+            kheiron_chacha20_blocks_avx2(ctx->state, p, avx_iters * 8);
+            p += avx_bytes;
+            remaining -= avx_bytes;
+            ctx->bytes_generated += avx_bytes;
+            continue;
+        }
+#endif
+
+        if (chunk_limit >= 64) {
+            size_t scalar_blocks = chunk_limit / 64;
+            for (size_t b = 0; b < scalar_blocks; b++) {
+                kheiron_chacha_block(ctx->state, p);
+                ctx->state[12]++;
+                if (ctx->state[12] == 0) {
+                    ctx->state[13]++;
+                }
+                p += 64;
+                remaining -= 64;
+                ctx->bytes_generated += 64;
+            }
+            continue;
+        }
+
+        uint8_t keystream[64];
+        kheiron_chacha_block(ctx->state, keystream);
         ctx->state[12]++;
         if (ctx->state[12] == 0) {
             ctx->state[13]++;
         }
-
-        size_t chunk = remaining < 64 ? remaining : 64;
-        for (size_t i = 0; i < chunk; i++) {
+        for (size_t i = 0; i < chunk_limit; i++) {
             p[i] = keystream[i];
         }
-
-        p += chunk;
-        remaining -= chunk;
-        ctx->bytes_generated += chunk;
+        kheiron_secure_wipe(keystream, sizeof(keystream));
+        p += chunk_limit;
+        remaining -= chunk_limit;
+        ctx->bytes_generated += chunk_limit;
     }
 
-    kheiron_secure_wipe(keystream, sizeof(keystream));
     return 0;
 }
 
@@ -594,8 +795,11 @@ KHEIRON_API int kheiron_reseed(const void *user_entropy, size_t len) {
 }
 
 KHEIRON_API int kheiron_fill(void *buf, size_t len) {
-    if (!buf || len == 0) {
+    if (!buf) {
         return -1;
+    }
+    if (len == 0) {
+        return 0;
     }
 
     if (kheiron_initialized == -1) {
@@ -612,31 +816,57 @@ KHEIRON_API int kheiron_fill(void *buf, size_t len) {
 
     uint8_t *p = (uint8_t *)buf;
     size_t remaining = len;
-    uint8_t keystream[64];
 
     while (remaining > 0) {
-        if ((kheiron_bytes_generated & ~0xFFFFFUL) != 0 || kheiron_bytes_generated >= 1048576) {
+        if (kheiron_bytes_generated >= KHEIRON_KEY_ROTATION_THRESHOLD) {
             kheiron_rotate_key();
         }
 
-        kheiron_chacha_block(kheiron_state, keystream);
+        size_t available_in_epoch = KHEIRON_KEY_ROTATION_THRESHOLD - kheiron_bytes_generated;
+        size_t chunk_limit = remaining < available_in_epoch ? remaining : available_in_epoch;
 
+#if KHEIRON_HAVE_AVX2
+        if (kheiron_cpu_has_avx2() && chunk_limit >= 512) {
+            size_t avx_iters = chunk_limit / 512;
+            size_t avx_bytes = avx_iters * 512;
+            kheiron_chacha20_blocks_avx2(kheiron_state, p, avx_iters * 8);
+            p += avx_bytes;
+            remaining -= avx_bytes;
+            kheiron_bytes_generated += avx_bytes;
+            continue;
+        }
+#endif
+
+        if (chunk_limit >= 64) {
+            size_t scalar_blocks = chunk_limit / 64;
+            for (size_t b = 0; b < scalar_blocks; b++) {
+                kheiron_chacha_block(kheiron_state, p);
+                kheiron_state[12]++;
+                if (kheiron_state[12] == 0) {
+                    kheiron_state[13]++;
+                }
+                p += 64;
+                remaining -= 64;
+                kheiron_bytes_generated += 64;
+            }
+            continue;
+        }
+
+        uint8_t keystream[64];
+        kheiron_chacha_block(kheiron_state, keystream);
         kheiron_state[12]++;
         if (kheiron_state[12] == 0) {
             kheiron_state[13]++;
         }
-
-        size_t chunk = remaining < 64 ? remaining : 64;
-        for (size_t i = 0; i < chunk; i++) {
+        for (size_t i = 0; i < chunk_limit; i++) {
             p[i] = keystream[i];
         }
-
-        p += chunk;
-        remaining -= chunk;
-        kheiron_bytes_generated += chunk;
+        kheiron_secure_wipe(keystream, sizeof(keystream));
+        p += chunk_limit;
+        remaining -= chunk_limit;
+        kheiron_bytes_generated += chunk_limit;
     }
 
-    kheiron_secure_wipe(keystream, sizeof(keystream));
     return 0;
 }
 
@@ -781,6 +1011,32 @@ KHEIRON_API int kheiron_consttime_cmp(const void *a, const void *b, size_t len) 
 
 KHEIRON_API uint32_t kheiron_consttime_select_u32(uint32_t mask, uint32_t a, uint32_t b) {
     return (mask & a) | (~mask & b);
+}
+
+KHEIRON_API int kheiron_init(void) {
+    if (kheiron_initialized == -1) {
+        return -1;
+    }
+    if (!kheiron_initialized) {
+        if (kheiron_selftest() != 0) {
+            kheiron_initialized = -1;
+            return -1;
+        }
+        kheiron_init_state();
+    }
+    return 0;
+}
+
+KHEIRON_API uint64_t kheiron_u64(void) {
+    uint64_t val = 0;
+    kheiron_fill(&val, sizeof(val));
+    return val;
+}
+
+KHEIRON_API uint32_t kheiron_u32(void) {
+    uint32_t val = 0;
+    kheiron_fill(&val, sizeof(val));
+    return val;
 }
 
 #endif
