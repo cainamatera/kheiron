@@ -41,7 +41,10 @@ jobs:
           ${{ matrix.compiler }} -std=${{ matrix.std }} -O2 -Wall -Wextra -Wpedantic -Werror -DKHEIRON_NO_AVX2 bench_tests.c -o bench_tests_scalar -lm -pthread
           ./bench_tests_scalar --quick
           make check CC=${{ matrix.compiler }}
-          make sanitizer CC=${{ matrix.compiler }}
+
+      - name: Run Sanitizers (Linux)
+        if: runner.os == 'Linux'
+        run: make sanitizer CC=${{ matrix.compiler }}
 
       - name: Compile and Test (Windows MinGW)
         if: runner.os == 'Windows'
