@@ -38,6 +38,8 @@ jobs:
         run: |
           ${{ matrix.compiler }} -std=${{ matrix.std }} -O2 -Wall -Wextra -Wpedantic -Werror bench_tests.c -o bench_tests -lm -pthread
           ./bench_tests --quick
+          ${{ matrix.compiler }} -std=${{ matrix.std }} -O2 -Wall -Wextra -Wpedantic -Werror -DKHEIRON_NO_AVX2 bench_tests.c -o bench_tests_scalar -lm -pthread
+          ./bench_tests_scalar --quick
           make check CC=${{ matrix.compiler }}
           make sanitizer CC=${{ matrix.compiler }}
 

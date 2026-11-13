@@ -5,7 +5,7 @@
 [![Standards: C99 / C11](https://img.shields.io/badge/Standards-C99%20%2F%20C11-brightgreen.svg)](#)
 [![Zero Dependency](https://img.shields.io/badge/Dependencies-Zero-orange.svg)](#)
 
-Gerador de Números Pseudo-Aleatórios Criptograficamente Seguro (CSPRNG) em arquivo único (*Single-Header*) em C99/C11, construído sobre a cifra de fluxo ChaCha20 (20 rounds, RFC 7539) com motor vetorial **AVX2 de 8 blocos paralelos (~2,5 GB/s)**, despacho dinâmico via CPUID em runtime e fallback automático transparente em C99 puro para qualquer arquitetura (ARM, RISC-V, x86 legado) sem exigir flags globais de compilação.
+Gerador de Números Pseudo-Aleatórios Criptograficamente Seguro (CSPRNG) em arquivo único (*Single-Header*) em C99/C11, construído sobre a cifra de fluxo ChaCha20 (20 rounds, RFC 8439) com motor vetorial **AVX2 de 8 blocos paralelos (~2,5 GB/s)**, despacho dinâmico via CPUID em runtime e fallback automático transparente em C99 puro para qualquer arquitetura (ARM, RISC-V, x86 legado) sem exigir flags globais de compilação.
 
 ---
 
@@ -17,7 +17,7 @@ Gerador de Números Pseudo-Aleatórios Criptograficamente Seguro (CSPRNG) em arq
 - **Forward Secrecy Contínuo**: Auto-rotação compulsória de chave de cifragem a cada 1 MB de dados gerados sem impacto perceptível de performance.
 - **Amostragem Sem Modulo Bias**: Algoritmo de Daniel Lemire com multiplicação de 128 bits (`__uint128_t`) e ponto flutuante IEEE 754 (`double` 53 bits / `float` 24 bits) em `[0.0, 1.0)`.
 - **Resiliência a Fork**: Invalidação de estado e reseed automático garantido pós-fork via `pthread_atfork` em sistemas POSIX, sem chamadas `madvise` inseguras sobre buffers arbitrários de pilha ou heap.
-- **Auto-Teste BIST Embutido**: Verificação automática de integridade do vetor oficial da RFC 7539 e sanitização de memória antes de liberar qualquer byte.
+- **Auto-Teste BIST Embutido**: Verificação automática de integridade do vetor oficial da RFC 8439 e sanitização de memória antes de liberar qualquer byte.
 
 ---
 
@@ -79,7 +79,7 @@ int main(void) {
 
 | Assinatura | Descrição | Retorno |
 |:---|:---|:---:|
-| `int kheiron_selftest(void)` | Executa BIST (vetor RFC 7539 e validação de `kheiron_secure_wipe`). | `0` em sucesso; `-1` falha RFC; `-2` falha wipe |
+| `int kheiron_selftest(void)` | Executa BIST (vetor RFC 8439 e validação de `kheiron_secure_wipe`). | `0` em sucesso; `-1` falha RFC; `-2` falha wipe |
 | `int kheiron_ctx_init(kheiron_ctx_t *ctx, const void *seed, size_t seed_len)` | Inicializa uma instância independente de contexto com semente ou entropia de jitter/SO. | `0` em sucesso; `-1` erro de parâmetro |
 | `int kheiron_ctx_fill(kheiron_ctx_t *ctx, void *buf, size_t len)` | Gera bytes criptográficos utilizando a instância de contexto explicitada. | `0` em sucesso; `-1` erro |
 | `void kheiron_ctx_wipe(kheiron_ctx_t *ctx)` | Zera seguramente a memória do contexto fornecido via barreira de memória. | `void` |
@@ -129,7 +129,7 @@ Em arquiteturas Unix/POSIX com chamadas concorrentes a `fork()`:
 - Em Windows, `VirtualLock` assegura que páginas contendo material criptográfico não sejam descarregadas em arquivos de swap.
 
 ### 5. Auto-Teste BIST (Built-In Self-Test)
-Toda primeira inicialização do estado executa `kheiron_selftest()`. Caso ocorra divergência no bloco ChaCha20 com os parâmetros oficiais de teste da RFC 7539 ou falha de sanitização de pilha, o gerador trava em estado corrompido e recusa qualquer operação, retornando `-1`.
+Toda primeira inicialização do estado executa `kheiron_selftest()`. Caso ocorra divergência no bloco ChaCha20 com os parâmetros oficiais de teste da RFC 8439 ou falha de sanitização de pilha, o gerador trava em estado corrompido e recusa qualquer operação, retornando `-1`.
 
 ---
 
@@ -149,7 +149,8 @@ Resultados medidos em ambiente Linux x86_64 comparando o Kheiron (AVX2 8 blocos 
 ## Comandos de Build e Teste
 
 ```bash
-make check       # Executa suíte de testes E2E e validação rápida
+make check       # Executa suíte completa de testes E2E
+make quick       # Executa testes rápidos de fumaça (--quick)
 make bench       # Executa benchmark comparativo contra o OpenSSL
 make sanitizer   # Bateria completa sob AddressSanitizer e UndefinedBehaviorSanitizer
 make clean       # Limpa binários e arquivos gerados
@@ -169,7 +170,7 @@ Resultados obtidos executando `make test` em ambiente Linux x86_64 sob compilaç
 | **Ponto Flutuante (`kheiron_uniform_double`)** | **~6.600.000 valores/s** | Aprovado |
 | **Embaralhamento (`kheiron_shuffle`)** | **~6.000.000 elem/s** | Aprovado |
 | **Concorrência Lock-Free (8 threads)** | **< 1.0 ms (latência zero)** | Aprovado |
-| **Vetor Oficial ChaCha20 (RFC 7539)** | **100% Coincidente** | Aprovado |
+| **Vetor Oficial ChaCha20 (RFC 8439)** | **100% Coincidente** | Aprovado |
 | **NIST SP 800-22 (Frequency Monobit Test)** | **p-value = 0.907** (limiar 0.01) | Aprovado |
 | **NIST SP 800-22 (Runs Test)** | **p-value = 0.953** (limiar 0.01) | Aprovado |
 | **Teste Qui-Quadrado ($\chi^2$)** | **$\chi^2 = 95.37$** (limiar 135.807) | Aprovado |

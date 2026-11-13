@@ -28,7 +28,9 @@ $(TARGET): $(SRC)
 test: $(TARGET)
 	./$(TARGET) --quick
 
-check: test
+quick: test
+
+check: e2e_test
 
 strict: $(TARGET)
 	./$(TARGET) --strict

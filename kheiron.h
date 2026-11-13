@@ -1,6 +1,12 @@
 #ifndef KHEIRON_H
 #define KHEIRON_H
 
+#if !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
+#if !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
 #if !defined(_DARWIN_C_SOURCE)
 #define _DARWIN_C_SOURCE 1
 #endif
@@ -23,6 +29,10 @@ typedef struct kheiron_ctx {
     uint32_t state[16];
     size_t bytes_generated;
 } kheiron_ctx_t;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #ifndef KHEIRON_API
 #if defined(KHEIRON_STATIC)
@@ -55,7 +65,11 @@ KHEIRON_API int kheiron_os_entropy(void *buf, size_t len);
 KHEIRON_API int kheiron_consttime_cmp(const void *a, const void *b, size_t len);
 KHEIRON_API uint32_t kheiron_consttime_select_u32(uint32_t mask, uint32_t a, uint32_t b);
 
-#if defined(KHEIRON_IMPLEMENTATION) || defined(KHEIRON_STATIC) || !defined(KHEIRON_HEADER_ONLY)
+#ifdef __cplusplus
+}
+#endif
+
+#if defined(KHEIRON_IMPLEMENTATION) || defined(KHEIRON_STATIC)
 
 #include <math.h>
 
@@ -80,7 +94,11 @@ KHEIRON_API uint32_t kheiron_consttime_select_u32(uint32_t mask, uint32_t a, uin
 
 #if KHEIRON_HAVE_AVX2
 static inline int kheiron_cpu_has_avx2(void) {
-    return __builtin_cpu_supports("avx2");
+    return __builtin_cpu_supports("avx2") ? 1 : 0;
+}
+#else
+static inline int kheiron_cpu_has_avx2(void) {
+    return 0;
 }
 #endif
 
@@ -102,12 +120,6 @@ static inline int kheiron_cpu_has_avx2(void) {
         extern void arc4random_buf(void *buf, size_t nbytes);
     #endif
 #else
-    #if !defined(_GNU_SOURCE)
-        #define _GNU_SOURCE
-    #endif
-    #if !defined(_POSIX_C_SOURCE)
-        #define _POSIX_C_SOURCE 200809L
-    #endif
     #include <unistd.h>
     #include <fcntl.h>
     #include <sys/syscall.h>
@@ -121,7 +133,10 @@ static inline int kheiron_cpu_has_avx2(void) {
 #endif
 
 KHEIRON_API int kheiron_os_entropy(void *buf, size_t len) {
-    if (!buf || len == 0) {
+    if (!buf) {
+        return (len == 0) ? 0 : -1;
+    }
+    if (len == 0) {
         return 0;
     }
 
@@ -177,11 +192,10 @@ KHEIRON_API int kheiron_os_entropy(void *buf, size_t len) {
     if (acquired >= len) {
         return 0;
     }
-    p += acquired;
-    len -= acquired;
+    kheiron_secure_wipe(buf, len);
+    return -1;
 #endif
-#endif
-
+#else
     while (len > 0) {
         uint64_t sample = kheiron_jitter_sample();
         uint64_t t = kheiron_rdtsc();
@@ -193,6 +207,7 @@ KHEIRON_API int kheiron_os_entropy(void *buf, size_t len) {
     }
 
     return 0;
+#endif
 }
 
 KHEIRON_API uint64_t kheiron_rdtsc(void) {
@@ -213,9 +228,15 @@ KHEIRON_API uint64_t kheiron_jitter_sample(void) {
     uint64_t res = 0;
     for (int i = 0; i < 64; i++) {
         uint64_t t0 = kheiron_rdtsc();
-        for (volatile int j = 0; j < 8; j++) {
-            __asm__ __volatile__("" ::: "memory");
+#if defined(__GNUC__) || defined(__clang__)
+        for (int j = 0; j < 8; j++) {
+            __asm__ __volatile__("" : "+r"(j) :: "memory");
         }
+#else
+        for (int j = 0; j < 8; j++) {
+            (void)j;
+        }
+#endif
         uint64_t t1 = kheiron_rdtsc();
         uint64_t bit = (t1 - t0) & 1ULL;
         res = (res << 1) | bit;
@@ -515,14 +536,17 @@ KHEIRON_API int kheiron_selftest(void) {
     return 0;
 }
 
-static inline void kheiron_init_state(void) {
+static inline int kheiron_init_state(void) {
     kheiron_state[0] = 0x61707865;
     kheiron_state[1] = 0x3320646e;
     kheiron_state[2] = 0x79622d32;
     kheiron_state[3] = 0x6b206574;
 
     uint8_t os_seed[32];
-    kheiron_os_entropy(os_seed, sizeof(os_seed));
+    if (kheiron_os_entropy(os_seed, sizeof(os_seed)) != 0) {
+        kheiron_secure_wipe(os_seed, sizeof(os_seed));
+        return -1;
+    }
     for (int i = 0; i < 8; i++) {
         uint32_t val = (uint32_t)os_seed[i * 4 + 0] |
                        ((uint32_t)os_seed[i * 4 + 1] << 8) |
@@ -551,6 +575,7 @@ static inline void kheiron_init_state(void) {
 
     kheiron_initialized = 1;
     kheiron_bytes_generated = 0;
+    return 0;
 }
 
 static inline void kheiron_rotate_key(void) {
@@ -633,10 +658,25 @@ KHEIRON_API int kheiron_ctx_init(kheiron_ctx_t *ctx, const void *seed, size_t se
         }
         kheiron_secure_wipe(out, sizeof(out));
     } else {
+        uint8_t os_seed[32];
+        if (kheiron_os_entropy(os_seed, sizeof(os_seed)) != 0) {
+            kheiron_secure_wipe(os_seed, sizeof(os_seed));
+            kheiron_secure_wipe(ctx, sizeof(*ctx));
+            return -1;
+        }
+        for (int i = 0; i < 8; i++) {
+            uint32_t val = (uint32_t)os_seed[i * 4 + 0] |
+                           ((uint32_t)os_seed[i * 4 + 1] << 8) |
+                           ((uint32_t)os_seed[i * 4 + 2] << 16) |
+                           ((uint32_t)os_seed[i * 4 + 3] << 24);
+            ctx->state[4 + i] = val;
+        }
+        kheiron_secure_wipe(os_seed, sizeof(os_seed));
+
         for (int i = 0; i < 4; i++) {
             uint64_t sample = kheiron_jitter_sample();
-            ctx->state[4 + i * 2] = (uint32_t)(sample & 0xFFFFFFFF);
-            ctx->state[4 + i * 2 + 1] = (uint32_t)(sample >> 32);
+            ctx->state[4 + i * 2] ^= (uint32_t)(sample & 0xFFFFFFFF);
+            ctx->state[4 + i * 2 + 1] ^= (uint32_t)(sample >> 32);
         }
         uint64_t t1 = kheiron_rdtsc();
         uint64_t t2 = kheiron_rdtsc();
@@ -752,11 +792,16 @@ KHEIRON_API int kheiron_reseed(const void *user_entropy, size_t len) {
     }
 
     if (!kheiron_initialized) {
-        kheiron_init_state();
+        if (kheiron_init_state() != 0) {
+            return -1;
+        }
     }
 
     uint8_t os_mix[32];
-    kheiron_os_entropy(os_mix, sizeof(os_mix));
+    if (kheiron_os_entropy(os_mix, sizeof(os_mix)) != 0) {
+        kheiron_secure_wipe(os_mix, sizeof(os_mix));
+        return -1;
+    }
 
     const uint8_t *p = (const uint8_t *)user_entropy;
     uint32_t temp_buf[16];
@@ -815,7 +860,10 @@ KHEIRON_API int kheiron_fill(void *buf, size_t len) {
             kheiron_initialized = -1;
             return -1;
         }
-        kheiron_init_state();
+        if (kheiron_init_state() != 0) {
+            kheiron_initialized = -1;
+            return -1;
+        }
     }
 
     uint8_t *p = (uint8_t *)buf;
@@ -922,14 +970,18 @@ KHEIRON_API uint64_t kheiron_range_u64(uint64_t min, uint64_t max) {
     uint64_t s = max - min + 1ULL;
     if (s == 0) {
         uint64_t val = 0;
-        kheiron_fill(&val, sizeof(val));
+        if (kheiron_fill(&val, sizeof(val)) != 0) {
+            return min;
+        }
         return val;
     }
 
     uint64_t t = -s % s;
     for (;;) {
         uint64_t x = 0;
-        kheiron_fill(&x, sizeof(x));
+        if (kheiron_fill(&x, sizeof(x)) != 0) {
+            return min;
+        }
         __uint128_t m = (__uint128_t)x * (__uint128_t)s;
         uint64_t l = (uint64_t)m;
         if (l >= t) {
@@ -940,13 +992,17 @@ KHEIRON_API uint64_t kheiron_range_u64(uint64_t min, uint64_t max) {
 
 KHEIRON_API double kheiron_uniform_double(void) {
     uint64_t r = 0;
-    kheiron_fill(&r, sizeof(r));
+    if (kheiron_fill(&r, sizeof(r)) != 0) {
+        return 0.0;
+    }
     return (double)(r >> 11) * 0x1.0p-53;
 }
 
 KHEIRON_API float kheiron_uniform_float(void) {
     uint32_t r = 0;
-    kheiron_fill(&r, sizeof(r));
+    if (kheiron_fill(&r, sizeof(r)) != 0) {
+        return 0.0f;
+    }
     return (float)(r >> 8) * 0x1.0p-24f;
 }
 
@@ -1026,7 +1082,10 @@ KHEIRON_API int kheiron_init(void) {
             kheiron_initialized = -1;
             return -1;
         }
-        kheiron_init_state();
+        if (kheiron_init_state() != 0) {
+            kheiron_initialized = -1;
+            return -1;
+        }
     }
     return 0;
 }
