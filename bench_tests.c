@@ -126,6 +126,96 @@ int main(int argc, char *argv[]) {
     if (!fork_ok) {
         failed = 1;
     }
+
+    int ctx_fork_ok = 0;
+    int ctx_fds[2];
+    if (pipe(ctx_fds) == 0) {
+        kheiron_ctx_t stack_ctx;
+        uint8_t cseed[32] = {1, 2, 3, 4};
+        if (kheiron_ctx_init(&stack_ctx, cseed, sizeof(cseed)) == 0) {
+            pid_t pid = fork();
+            if (pid == 0) {
+                close(ctx_fds[0]);
+                uint8_t child_out[64];
+                int rc = kheiron_ctx_fill(&stack_ctx, child_out, sizeof(child_out));
+                kheiron_ctx_wipe(&stack_ctx);
+                ssize_t w = write(ctx_fds[1], child_out, sizeof(child_out));
+                close(ctx_fds[1]);
+                (void)w;
+                exit(rc == 0 ? 0 : 1);
+            } else if (pid > 0) {
+                close(ctx_fds[1]);
+                uint8_t child_out[64];
+                ssize_t r = read(ctx_fds[0], child_out, sizeof(child_out));
+                close(ctx_fds[0]);
+                int status = 0;
+                waitpid(pid, &status, 0);
+                if (r == (ssize_t)sizeof(child_out) && !WIFSIGNALED(status) && WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+                    ctx_fork_ok = 1;
+                }
+                kheiron_ctx_wipe(&stack_ctx);
+            } else {
+                close(ctx_fds[0]);
+                close(ctx_fds[1]);
+            }
+        }
+    }
+    printf("Context Fork Safety (Stack): %s\n", ctx_fork_ok ? "APROVADO" : "REPROVADO");
+    if (!ctx_fork_ok) {
+        failed = 1;
+    }
+
+    int ctx_heap_fork_ok = 0;
+    int heap_fds[2];
+    if (pipe(heap_fds) == 0) {
+        kheiron_ctx_t *heap_ctx = (kheiron_ctx_t *)malloc(sizeof(kheiron_ctx_t));
+        if (heap_ctx) {
+            uint8_t hseed[32] = {5, 6, 7, 8};
+            if (kheiron_ctx_init(heap_ctx, hseed, sizeof(hseed)) == 0) {
+                pid_t pid = fork();
+                if (pid == 0) {
+                    close(heap_fds[0]);
+                    uint8_t child_out[64];
+                    int rc = kheiron_ctx_fill(heap_ctx, child_out, sizeof(child_out));
+                    kheiron_ctx_wipe(heap_ctx);
+                    free(heap_ctx);
+                    void *heap_probe = malloc(128);
+                    if (heap_probe) {
+                        memset(heap_probe, 0x5A, 128);
+                        free(heap_probe);
+                    } else {
+                        rc = -1;
+                    }
+                    ssize_t w = write(heap_fds[1], child_out, sizeof(child_out));
+                    close(heap_fds[1]);
+                    (void)w;
+                    exit(rc == 0 ? 0 : 1);
+                } else if (pid > 0) {
+                    close(heap_fds[1]);
+                    uint8_t child_out[64];
+                    ssize_t r = read(heap_fds[0], child_out, sizeof(child_out));
+                    close(heap_fds[0]);
+                    int status = 0;
+                    waitpid(pid, &status, 0);
+                    if (r == (ssize_t)sizeof(child_out) && !WIFSIGNALED(status) && WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+                        ctx_heap_fork_ok = 1;
+                    }
+                    kheiron_ctx_wipe(heap_ctx);
+                    free(heap_ctx);
+                } else {
+                    close(heap_fds[0]);
+                    close(heap_fds[1]);
+                    free(heap_ctx);
+                }
+            } else {
+                free(heap_ctx);
+            }
+        }
+    }
+    printf("Context Fork Safety (Heap): %s\n", ctx_heap_fork_ok ? "APROVADO" : "REPROVADO");
+    if (!ctx_heap_fork_ok) {
+        failed = 1;
+    }
 #endif
 
     uint64_t n_samples = is_strict ? 10000000ULL : 100000ULL;

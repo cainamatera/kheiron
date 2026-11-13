@@ -416,25 +416,30 @@ static inline void kheiron_chacha20_blocks_avx2(uint32_t state[16], uint8_t *out
 }
 #endif
 
+/*
+ * kheiron_protect_memory: Memory protection helper.
+ * NOTE: Page-level advisories (such as MADV_DONTDUMP or VirtualLock) operate at
+ * OS page granularity. To prevent disastrous page-table side effects (such as
+ * zeroing stack frames or heap metadata upon fork), this helper must only be
+ * applied to dedicated, page-aligned buffers. It must never be applied to stack,
+ * heap arena chunks, or thread-local storage.
+ */
 static inline void kheiron_protect_memory(void *addr, size_t len) {
 #if defined(_WIN32) || defined(_WIN64)
     VirtualLock(addr, len);
 #else
-#if defined(MADV_WIPEONFORK) || defined(MADV_DONTDUMP)
+#if defined(MADV_DONTDUMP)
     if (addr && len > 0) {
         long page_size = sysconf(_SC_PAGESIZE);
         if (page_size > 0) {
             uintptr_t start = (uintptr_t)addr;
-            uintptr_t end = start + len;
             uintptr_t page_start = start & ~((uintptr_t)page_size - 1);
-            uintptr_t page_end = (end + (uintptr_t)page_size - 1) & ~((uintptr_t)page_size - 1);
-            size_t page_len = (size_t)(page_end - page_start);
-#if defined(MADV_WIPEONFORK)
-            (void)madvise((void *)page_start, page_len, MADV_WIPEONFORK);
-#endif
-#if defined(MADV_DONTDUMP)
-            (void)madvise((void *)page_start, page_len, MADV_DONTDUMP);
-#endif
+            if (start == page_start && len >= (size_t)page_size) {
+                uintptr_t end = start + len;
+                uintptr_t page_end = (end + (uintptr_t)page_size - 1) & ~((uintptr_t)page_size - 1);
+                size_t page_len = (size_t)(page_end - page_start);
+                (void)madvise((void *)page_start, page_len, MADV_DONTDUMP);
+            }
         }
     }
 #else
@@ -641,7 +646,6 @@ KHEIRON_API int kheiron_ctx_init(kheiron_ctx_t *ctx, const void *seed, size_t se
         ctx->state[15] = (uint32_t)(t2 >> 32);
     }
 
-    kheiron_protect_memory(ctx->state, sizeof(ctx->state));
     ctx->bytes_generated = 0;
     return 0;
 }
