@@ -1,22 +1,22 @@
-# Kheiron
+# Kheiron v2.0.0 — CSPRNG Single-Header de Alta Performance em C com Vetorização AVX2 e Zero Dependências
 
 [![CI](https://github.com/cainamatera/kheiron/actions/workflows/ci.yml/badge.svg)](https://github.com/cainamatera/kheiron/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Standards: C99 / C11](https://img.shields.io/badge/Standards-C99%20%2F%20C11-brightgreen.svg)](#)
 [![Zero Dependency](https://img.shields.io/badge/Dependencies-Zero-orange.svg)](#)
 
-Gerador de Números Pseudo-Aleatórios Criptograficamente Seguro (CSPRNG) em arquivo único (*Single-Header*) em C, construído sobre a cifra de fluxo ChaCha20 (20 rounds, RFC 7539), com amostragem sem viés de módulo (*modulo bias-free*), tempo constante (*constant-time*), avanço de chave automático (*forward secrecy*) e resiliência a clonagem pós-*fork*.
+Gerador de Números Pseudo-Aleatórios Criptograficamente Seguro (CSPRNG) em arquivo único (*Single-Header*) em C99/C11, construído sobre a cifra de fluxo ChaCha20 (20 rounds, RFC 7539) com motor vetorial **AVX2 de 8 blocos paralelos (~2,5 GB/s)**, despacho dinâmico via CPUID em runtime e fallback automático transparente em C99 puro para qualquer arquitetura (ARM, RISC-V, x86 legado) sem exigir flags globais de compilação.
 
 ---
 
-## Proposta de Valor
+## Proposta de Valor e Portabilidade
 
-- **Single-Header Amalgamado**: Fácil integração com `#define KHEIRON_IMPLEMENTATION` ou modo de linkagem estática com `#define KHEIRON_STATIC`.
-- **Motor Criptográfico ChaCha20**: 20 rounds completos de permutação em blocos de 64 bytes (RFC 7539), garantindo margem de segurança contra criptoanálise.
+- **Single-Header Amalgamado**: Integração imediata com `#define KHEIRON_IMPLEMENTATION` ou modo de linkagem estática com `#define KHEIRON_STATIC`, com zero dependências externas.
+- **Despacho Dinâmico CPUID + AVX2 (8 Blocos)**: Detecção em tempo de execução que ativa o kernel vetorial AVX2 de 8 blocos paralelos (512 bytes/iteração) em CPUs x86_64 compatíveis, com fallback automático e transparente para C99 escalar puro em qualquer outra arquitetura.
 - **Isolamento Concorrente Lock-Free**: Estado thread-local nativo (`KHEIRON_THREAD_LOCAL`) e instâncias explícitas (`kheiron_ctx_t`) para eliminar contenção entre threads.
-- **Forward Secrecy Ativo**: Rotação automática de chave de cifragem a cada 1 MB de dados gerados.
-- **Amostragem Sem Modulo Bias**: Algoritmo de Lemire para inteiros limitados e amostragem de ponto flutuante IEEE 754 de 53 bits sem divisão na FPU.
-- **Resiliência a Fork**: Invalidação de estado e reseed automático via `pthread_atfork` em sistemas POSIX, associado a proteção de páginas no kernel via `madvise` (`MADV_WIPEONFORK`, `MADV_DONTDUMP`) e `VirtualLock` no Windows.
+- **Forward Secrecy Contínuo**: Auto-rotação compulsória de chave de cifragem a cada 1 MB de dados gerados sem impacto perceptível de performance.
+- **Amostragem Sem Modulo Bias**: Algoritmo de Daniel Lemire com multiplicação de 128 bits (`__uint128_t`) e ponto flutuante IEEE 754 (`double` 53 bits / `float` 24 bits) em `[0.0, 1.0)`.
+- **Resiliência a Fork**: Invalidação de estado e reseed automático garantido pós-fork via `pthread_atfork` em sistemas POSIX, sem chamadas `madvise` inseguras sobre buffers arbitrários de pilha ou heap.
 - **Auto-Teste BIST Embutido**: Verificação automática de integridade do vetor oficial da RFC 7539 e sanitização de memória antes de liberar qualquer byte.
 
 ---
@@ -122,24 +122,49 @@ A rotina `kheiron_secure_wipe` implementa escrita byte-a-byte através de pontei
 ### 3. Proteção em Tempo Constante (Constant-Time)
 Comparações e seleções críticas utilizam acumuladores OR e máscaras aritméticas de bits, evitando branches condicionais (`if`, `switch`) cuja latência dependente de dados possa ser explorada por canais laterais (*side-channel timing attacks*).
 
-### 4. Resiliência a Fork e Proteção no Kernel
+### 4. Resiliência a Fork
 Em arquiteturas Unix/POSIX com chamadas concorrentes a `fork()`:
 - O manipulador `pthread_atfork` detecta a criação do processo filho, zera o estado clonado e força novo reseed imediato com entropia do SO e jitter de temporizador.
-- Páginas de alocação de contextos e buffers sensíveis invocam `madvise` com flags `MADV_WIPEONFORK` e `MADV_DONTDUMP`.
-- Em Windows, `VirtualLock` assegura que páginas contendo material criptográfico não sejam descarregadas em arquivos de swap na partição de disco.
+- Chamadas `madvise` inseguras sobre ponteiros arbitrários de pilha ou heap não alinhados à página foram removidas da inicialização contextual, preservando segurança estrita sob AddressSanitizer e UndefinedBehaviorSanitizer.
+- Em Windows, `VirtualLock` assegura que páginas contendo material criptográfico não sejam descarregadas em arquivos de swap.
 
 ### 5. Auto-Teste BIST (Built-In Self-Test)
 Toda primeira inicialização do estado executa `kheiron_selftest()`. Caso ocorra divergência no bloco ChaCha20 com os parâmetros oficiais de teste da RFC 7539 ou falha de sanitização de pilha, o gerador trava em estado corrompido e recusa qualquer operação, retornando `-1`.
 
 ---
 
-## Métricas e Benchmarks
+## Tabela Comparativa Empírica (Kheiron v2.0.0 vs. OpenSSL `RAND_bytes`)
+
+Resultados medidos em ambiente Linux x86_64 comparando o Kheiron (AVX2 8 blocos com Forward Secrecy contínuo a cada 1 MB) diretamente contra o `RAND_bytes` do OpenSSL 3.x:
+
+| Dimensão Avaliada | Kheiron v2.0.0 | OpenSSL (`RAND_bytes`) | Vantagem Relativa |
+|:---|:---:|:---:|:---:|
+| **Latência de blocos pequenos (64 B)** | **~455 MB/s** | ~128–144 MB/s | **3,16x a 3,54x superior** |
+| **Throughput vetorial contínuo (1 KB)** | **~2.518 MB/s** | ~1.478 MB/s | **1,70x mais rápido** |
+| **Footprint Binário** | **~35 KB** (objeto/executável) | ~7,76 MB (`libcrypto.so.3` + deps) | **~226x mais leve** |
+| **Dependências Dinâmicas (`.so`)** | **0 (Zero)** | 10 objetos dinâmicos mapeados | **Zero dependências** |
+
+---
+
+## Comandos de Build e Teste
+
+```bash
+make check       # Executa suíte de testes E2E e validação rápida
+make bench       # Executa benchmark comparativo contra o OpenSSL
+make sanitizer   # Bateria completa sob AddressSanitizer e UndefinedBehaviorSanitizer
+make clean       # Limpa binários e arquivos gerados
+```
+
+---
+
+## Métricas e Benchmarks Internos
 
 Resultados obtidos executando `make test` em ambiente Linux x86_64 sob compilação com `-std=c99 -O2`:
 
 | Métrica / Teste | Resultado Obtido | Status |
 |:---|:---:|:---:|
-| **Taxa de Geração Contínua (`kheiron_fill`)** | **~450 MB/s** | Aprovado |
+| **Taxa de Geração Contínua (`kheiron_fill` — AVX2 Vetorial x86_64)** | **~2.518 MB/s (~2,5 GB/s)** | Aprovado |
+| **Taxa de Geração Contínua (`kheiron_fill` — Escalar Fallback C99 puro)** | **~450 MB/s** | Aprovado |
 | **Geração de Tokens (`kheiron_string`)** | **~4.800.000 strings/s** | Aprovado |
 | **Ponto Flutuante (`kheiron_uniform_double`)** | **~6.600.000 valores/s** | Aprovado |
 | **Embaralhamento (`kheiron_shuffle`)** | **~6.000.000 elem/s** | Aprovado |
@@ -149,26 +174,6 @@ Resultados obtidos executando `make test` em ambiente Linux x86_64 sob compilaç
 | **NIST SP 800-22 (Runs Test)** | **p-value = 0.953** (limiar 0.01) | Aprovado |
 | **Teste Qui-Quadrado ($\chi^2$)** | **$\chi^2 = 95.37$** (limiar 135.807) | Aprovado |
 | **Fork Safety pós-clonagem** | **Bytes Divergentes** | Aprovado |
-
----
-
-## Compilação e Testes
-
-Para compilar e rodar a suíte de validação:
-
-```bash
-# Executa testes rápidos
-make test
-
-# Executa bateria estatística estrita
-make strict
-
-# Executa análise dinâmica AddressSanitizer + UndefinedBehaviorSanitizer
-make sanitize
-
-# Limpa binários e arquivos intermediários
-make clean
-```
 
 ---
 

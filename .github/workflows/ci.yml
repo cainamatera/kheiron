@@ -38,6 +38,8 @@ jobs:
         run: |
           ${{ matrix.compiler }} -std=${{ matrix.std }} -O2 -Wall -Wextra -Wpedantic -Werror bench_tests.c -o bench_tests -lm -pthread
           ./bench_tests --quick
+          make check CC=${{ matrix.compiler }}
+          make sanitizer CC=${{ matrix.compiler }}
 
       - name: Compile and Test (Windows MinGW)
         if: runner.os == 'Windows'
