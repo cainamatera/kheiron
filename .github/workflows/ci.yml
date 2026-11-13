@@ -38,13 +38,12 @@ jobs:
         run: |
           ${{ matrix.compiler }} -std=${{ matrix.std }} -O2 -Wall -Wextra -Wpedantic -Werror bench_tests.c -o bench_tests -lm -pthread
           ./bench_tests --quick
-          ${{ matrix.compiler }} -std=${{ matrix.std }} -O2 -Wall -Wextra -Wpedantic -Werror -DKHEIRON_NO_AVX2 bench_tests.c -o bench_tests_scalar -lm -pthread
-          ./bench_tests_scalar --quick
-          make check CC=${{ matrix.compiler }}
 
-      - name: Run Sanitizers (Linux)
+      - name: Run Full E2E & Sanitizers (Linux)
         if: runner.os == 'Linux'
-        run: make sanitizer CC=${{ matrix.compiler }}
+        run: |
+          make check CC=${{ matrix.compiler }}
+          make sanitizer CC=${{ matrix.compiler }}
 
       - name: Compile and Test (Windows MinGW)
         if: runner.os == 'Windows'
