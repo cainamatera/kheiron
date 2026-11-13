@@ -63,17 +63,11 @@ static int g_tests_failed = 0;
     } \
 } while (0)
 
-/* ========================================================================= */
-/* 1. STATISTICAL STRESS TESTS                                               */
-/* ========================================================================= */
-
-/* Test 1.1: High-Volume Monte Carlo Pi Estimation (10 Million samples) */
 static int test_stat_monte_carlo_pi_10m(void) {
     const uint64_t N = 10000000ULL;
     uint64_t inside_double = 0;
-    uint64_t quadrant_counts[4] = {0}; /* Q1(+,+), Q2(-,+), Q3(-,-), Q4(+,-) */
+    uint64_t quadrant_counts[4] = {0};
 
-    /* 10 concentric annular rings of equal area on the unit disk */
     const int RINGS = 10;
     uint64_t ring_counts[10] = {0};
 
@@ -86,7 +80,7 @@ static int test_stat_monte_carlo_pi_10m(void) {
 
         if (r2 <= 1.0) {
             inside_double++;
-            /* Quadrant classification */
+
             int q = 0;
             if (x >= 0.0 && y >= 0.0) q = 0;
             else if (x < 0.0 && y >= 0.0) q = 1;
@@ -102,33 +96,30 @@ static int test_stat_monte_carlo_pi_10m(void) {
 
     double pi_est = 4.0 * (double)inside_double / (double)N;
     double pi_err = fabs(pi_est - 3.14159265358979323846);
-    /* 99.999% confidence threshold for 10M points is ~0.0020 */
+
     CHK_ASSERT_FMT(pi_err < 0.0025, "Pi estimate error too high: %f (est: %f)", pi_err, pi_est);
 
-    /* 4-Quadrant Symmetry Chi-Squared Test */
     double expected_q = (double)inside_double / 4.0;
     double chi2_q = 0.0;
     for (int q = 0; q < 4; q++) {
         double d = (double)quadrant_counts[q] - expected_q;
         chi2_q += (d * d) / expected_q;
     }
-    /* df=3, critical value at p=0.001 is 16.27 */
+
     CHK_ASSERT_FMT(chi2_q < 16.27, "Quadrant chi2 failed: %f (expected < 16.27)", chi2_q);
 
-    /* Concentric Ring Uniformity Chi-Squared Test */
     double expected_ring = (double)inside_double / (double)RINGS;
     double chi2_ring = 0.0;
     for (int r = 0; r < RINGS; r++) {
         double d = (double)ring_counts[r] - expected_ring;
         chi2_ring += (d * d) / expected_ring;
     }
-    /* df=9, critical value at p=0.001 is 27.88 */
+
     CHK_ASSERT_FMT(chi2_ring < 27.88, "Concentric ring chi2 failed: %f (expected < 27.88)", chi2_ring);
 
     return 0;
 }
 
-/* Test 1.2: Float vs Double Monte Carlo Pi Consistency */
 static int test_stat_monte_carlo_float_vs_double(void) {
     const uint64_t N = 5000000ULL;
     uint64_t in_flt = 0;
@@ -155,7 +146,6 @@ static int test_stat_monte_carlo_float_vs_double(void) {
     return 0;
 }
 
-/* Test 1.3: Fisher-Yates Shuffling at 1,000,000 Elements (8 MB Buffer) */
 static int test_stat_fisher_yates_1m_elements(void) {
     const size_t N = 1000000;
     uint64_t *arr = (uint64_t *)malloc(N * sizeof(uint64_t));
@@ -169,7 +159,6 @@ static int test_stat_fisher_yates_1m_elements(void) {
         expected_xor ^= i;
     }
 
-    /* Shuffle array (8MB buffer will traverse 8 key rotations) */
     CHK_ASSERT(kheiron_shuffle(arr, N, sizeof(uint64_t)) == 0, "kheiron_shuffle returned non-zero");
 
     uint64_t actual_sum = 0;
@@ -186,17 +175,13 @@ static int test_stat_fisher_yates_1m_elements(void) {
         displacement_sum += fabs((double)v - (double)i);
     }
 
-    /* 1. Conservation of Elements */
     CHK_ASSERT_FMT(actual_sum == expected_sum, "Permutation sum mismatch: actual %llu != expected %llu",
                    (unsigned long long)actual_sum, (unsigned long long)expected_sum);
     CHK_ASSERT_FMT(actual_xor == expected_xor, "Permutation XOR mismatch: actual %llu != expected %llu",
                    (unsigned long long)actual_xor, (unsigned long long)expected_xor);
 
-    /* 2. Fixed Points Count (Poisson distribution with mean=1, variance=1) */
     CHK_ASSERT_FMT(fixed_points < 15, "Abnormal number of fixed points in 1M shuffle: %zu", fixed_points);
 
-    /* 3. Average Displacement */
-    /* Theoretical mean displacement = (N^2 - 1) / (3N) ~ N / 3 = 333333.33 */
     double avg_disp = displacement_sum / (double)N;
     double disp_err = fabs(avg_disp - 333333.33);
     CHK_ASSERT_FMT(disp_err < 2000.0, "Average displacement %f deviates from 333333.33 by %f", avg_disp, disp_err);
@@ -205,10 +190,9 @@ static int test_stat_fisher_yates_1m_elements(void) {
     return 0;
 }
 
-/* Test 1.4: Fisher-Yates 5-Element Permutation Chi-Squared Uniformity (600,000 trials) */
 static int test_stat_fisher_yates_5elem_chi2(void) {
     const uint64_t TRIALS = 600000ULL;
-    const int NUM_PERMS = 120; /* 5! = 120 */
+    const int NUM_PERMS = 120;
     uint64_t counts[120] = {0};
     uint8_t deck[5];
 
@@ -216,7 +200,6 @@ static int test_stat_fisher_yates_5elem_chi2(void) {
         deck[0] = 0; deck[1] = 1; deck[2] = 2; deck[3] = 3; deck[4] = 4;
         CHK_ASSERT(kheiron_shuffle(deck, 5, sizeof(uint8_t)) == 0, "kheiron_shuffle failed");
 
-        /* Compute Lehmer code / permutation index */
         int idx = 0;
         int factor = 24;
         for (int i = 0; i < 4; i++) {
@@ -231,20 +214,19 @@ static int test_stat_fisher_yates_5elem_chi2(void) {
         counts[idx]++;
     }
 
-    double expected = (double)TRIALS / (double)NUM_PERMS; /* 5000 per bin */
+    double expected = (double)TRIALS / (double)NUM_PERMS;
     double chi2 = 0.0;
     for (int p = 0; p < NUM_PERMS; p++) {
         double d = (double)counts[p] - expected;
         chi2 += (d * d) / expected;
     }
-    /* df=119, critical value at p=0.0001 is 185.0 */
+
     CHK_ASSERT_FMT(chi2 < 185.0, "5! Permutation Chi2 failed: %f (expected < 185.0)", chi2);
     return 0;
 }
 
-/* Test 1.5: Chi-Squared Uniformity on 10 MB Byte Stream Across 10 Rotations */
 static int test_stat_chisquare_10mb_bytes(void) {
-    const size_t TOTAL_BYTES = 10 * 1024 * 1024; /* 10 MB */
+    const size_t TOTAL_BYTES = 10 * 1024 * 1024;
     uint64_t counts[256] = {0};
     uint8_t buf[4096];
     size_t done = 0;
@@ -258,20 +240,19 @@ static int test_stat_chisquare_10mb_bytes(void) {
         done += chunk;
     }
 
-    double expected = (double)TOTAL_BYTES / 256.0; /* 40960.0 */
+    double expected = (double)TOTAL_BYTES / 256.0;
     double chi2 = 0.0;
     for (int i = 0; i < 256; i++) {
         double d = (double)counts[i] - expected;
         chi2 += (d * d) / expected;
     }
-    /* df=255. Mean=255, StdDev = sqrt(2*255) = 22.58. 3.5-sigma interval: [175, 335] */
+
     CHK_ASSERT_FMT(chi2 >= 175.0 && chi2 <= 335.0, "Byte stream Chi2 out of 3.5-sigma bounds: %f", chi2);
     return 0;
 }
 
-/* Test 1.6: Chi-Squared Uniformity on 16-bit Words (65,536 Bins, 8M samples) */
 static int test_stat_chisquare_16bit_words(void) {
-    const size_t NUM_WORDS = 8 * 1024 * 1024; /* 8M uint16 words = 16 MB */
+    const size_t NUM_WORDS = 8 * 1024 * 1024;
     uint32_t *counts = (uint32_t *)calloc(65536, sizeof(uint32_t));
     CHK_ASSERT(counts != NULL, "calloc failed for 65536 word bins");
 
@@ -287,7 +268,7 @@ static int test_stat_chisquare_16bit_words(void) {
         words_done += cur;
     }
 
-    double expected = (double)NUM_WORDS / 65536.0; /* 128.0 */
+    double expected = (double)NUM_WORDS / 65536.0;
     double chi2 = 0.0;
     for (int i = 0; i < 65536; i++) {
         double d = (double)counts[i] - expected;
@@ -295,15 +276,13 @@ static int test_stat_chisquare_16bit_words(void) {
     }
     free(counts);
 
-    /* df=65535, Mean=65535, StdDev = sqrt(2 * 65535) ~ 362.0. 4-sigma range: [64087, 66983] */
     double z = (chi2 - 65535.0) / 362.0;
     CHK_ASSERT_FMT(fabs(z) < 4.0, "16-bit word Chi2 z-score failed: %f (chi2: %f)", z, chi2);
     return 0;
 }
 
-/* Test 1.7: Lemire Modulo Bias-Free Sampling Stress (Prime & Power-of-Two Moduli) */
 static int test_stat_lemire_range_modulo_stress(void) {
-    /* Test A: Prime Modulus M = 97 (970,000 samples) */
+
     {
         const int M = 97;
         const uint64_t SAMPLES = 970000ULL;
@@ -319,11 +298,10 @@ static int test_stat_lemire_range_modulo_stress(void) {
             double d = (double)bin[i] - expected;
             chi2 += (d * d) / expected;
         }
-        /* df=96, critical value at p=0.001 is 144.3 */
+
         CHK_ASSERT_FMT(chi2 < 145.0, "Lemire prime M=97 Chi2 failed: %f", chi2);
     }
 
-    /* Test B: Non-zero offset range [1000, 1009] (1,000,000 samples) */
     {
         const uint64_t SAMPLES = 1000000ULL;
         uint64_t bin[10] = {0};
@@ -338,11 +316,10 @@ static int test_stat_lemire_range_modulo_stress(void) {
             double d = (double)bin[i] - expected;
             chi2 += (d * d) / expected;
         }
-        /* df=9, critical value at p=0.001 is 27.88 */
+
         CHK_ASSERT_FMT(chi2 < 28.0, "Lemire offset range Chi2 failed: %f", chi2);
     }
 
-    /* Test C: Full 64-bit bounds [0, UINT64_MAX] */
     {
         uint64_t hi_bit_count = 0;
         uint64_t lo_bit_count = 0;
@@ -361,7 +338,6 @@ static int test_stat_lemire_range_modulo_stress(void) {
     return 0;
 }
 
-/* Normal CDF helper for Kolmogorov-Smirnov test */
 static double standard_normal_cdf(double x) {
     return 0.5 * erfc(-x * 0.70710678118654752440);
 }
@@ -374,7 +350,6 @@ static int compare_doubles(const void *a, const void *b) {
     return 0;
 }
 
-/* Test 1.8: Gaussian Mean, Variance, Higher Moments and KS Goodness-of-Fit */
 static int test_stat_gaussian_moments_and_ks(void) {
     const int N = 1000000;
     double sum = 0.0;
@@ -398,13 +373,11 @@ static int test_stat_gaussian_moments_and_ks(void) {
     double m4 = sum_four / (double)N;
     double kurtosis = (m4 / (var * var)) - 3.0;
 
-    /* 4-sigma checks for 1M samples */
     CHK_ASSERT_FMT(fabs(mean) < 0.005, "Gaussian mean out of bounds: %f", mean);
     CHK_ASSERT_FMT(fabs(var - 1.0) < 0.007, "Gaussian variance out of bounds: %f", var);
     CHK_ASSERT_FMT(fabs(skewness) < 0.020, "Gaussian skewness out of bounds: %f", skewness);
     CHK_ASSERT_FMT(fabs(kurtosis) < 0.035, "Gaussian excess kurtosis out of bounds: %f", kurtosis);
 
-    /* Kolmogorov-Smirnov Test on a 20,000-sample subsample */
     const int KS_N = 20000;
     double *ks_samples = (double *)malloc(KS_N * sizeof(double));
     CHK_ASSERT(ks_samples != NULL, "malloc failed for KS test");
@@ -423,16 +396,10 @@ static int test_stat_gaussian_moments_and_ks(void) {
     }
     free(ks_samples);
 
-    /* KS critical value for alpha=0.01 with N=20000 is 1.63 / sqrt(20000) ~ 0.0115 */
     CHK_ASSERT_FMT(max_d < 0.0120, "Kolmogorov-Smirnov test failed: D = %f (threshold: 0.0120)", max_d);
     return 0;
 }
 
-/* ========================================================================= */
-/* 2. BOUNDARY STRESS TESTS                                                  */
-/* ========================================================================= */
-
-/* Test 2.1: Exhaustive Alignment Sweep 1..63 with Canary Envelopes */
 static int test_bound_alignment_canary_sweep(void) {
     const size_t test_lens[] = {
         0, 1, 2, 3, 7, 8, 15, 16, 31, 32, 63, 64, 65,
@@ -483,22 +450,18 @@ static int test_bound_alignment_canary_sweep(void) {
     return 0;
 }
 
-/* Test 2.2: Zero-Length Requests and Defensive Contract Robustness */
 static int test_bound_zero_length_and_nulls(void) {
     uint8_t buf[64];
     memset(buf, 0xAA, sizeof(buf));
 
-    /* 1. Zero length with valid buffer must succeed and not modify memory */
     CHK_ASSERT(kheiron_fill(buf, 0) == 0, "kheiron_fill(buf, 0) returned non-zero");
     for (size_t i = 0; i < sizeof(buf); i++) {
         CHK_ASSERT_FMT(buf[i] == 0xAA, "kheiron_fill(buf, 0) modified byte %zu", i);
     }
 
-    /* 2. NULL buffer with length 0 and non-zero */
     CHK_ASSERT(kheiron_fill(NULL, 0) == -1, "kheiron_fill(NULL, 0) must return -1");
     CHK_ASSERT(kheiron_fill(NULL, 10) == -1, "kheiron_fill(NULL, 10) must return -1");
 
-    /* 3. Contextual API NULL & zero handling */
     kheiron_ctx_t ctx;
     CHK_ASSERT(kheiron_ctx_init(&ctx, NULL, 0) == 0, "kheiron_ctx_init(NULL, 0) should succeed");
     CHK_ASSERT(kheiron_ctx_fill(&ctx, buf, 0) == 0, "kheiron_ctx_fill(ctx, buf, 0) should succeed");
@@ -509,7 +472,6 @@ static int test_bound_zero_length_and_nulls(void) {
     CHK_ASSERT(kheiron_ctx_fill(NULL, buf, 10) == -1, "kheiron_ctx_fill(NULL, buf, 10) must return -1");
     kheiron_ctx_wipe(&ctx);
 
-    /* 4. Secure Wipe NULL and zero length safety */
     kheiron_secure_wipe(NULL, 0);
     kheiron_secure_wipe(NULL, 128);
     kheiron_secure_wipe(buf, 0);
@@ -517,45 +479,37 @@ static int test_bound_zero_length_and_nulls(void) {
         CHK_ASSERT_FMT(buf[i] == 0xAA, "kheiron_secure_wipe(buf, 0) modified byte %zu", i);
     }
 
-    /* 5. String NULL & zero length */
     char str[16] = {0};
     CHK_ASSERT(kheiron_string(NULL, 10, "abc") == -1, "kheiron_string NULL dest");
     CHK_ASSERT(kheiron_string(str, 10, NULL) == -1, "kheiron_string NULL charset");
     CHK_ASSERT(kheiron_string(str, 10, "") == -1, "kheiron_string empty charset");
 
-    /* 6. Shuffle bounds */
     int arr[5] = {1, 2, 3, 4, 5};
     CHK_ASSERT(kheiron_shuffle(NULL, 5, sizeof(int)) == -1, "kheiron_shuffle NULL base");
     CHK_ASSERT(kheiron_shuffle(arr, 0, sizeof(int)) == -1, "kheiron_shuffle 0 nmemb");
     CHK_ASSERT(kheiron_shuffle(arr, 1, sizeof(int)) == -1, "kheiron_shuffle 1 nmemb");
     CHK_ASSERT(kheiron_shuffle(arr, 5, 0) == -1, "kheiron_shuffle 0 size");
 
-    /* 7. Range bounds */
     CHK_ASSERT(kheiron_range_u64(42, 42) == 42, "kheiron_range_u64 min==max must return min");
     CHK_ASSERT(kheiron_range_u64(100, 50) == 100, "kheiron_range_u64 min > max must return min");
 
-    /* 8. Gaussian bounds */
     CHK_ASSERT(kheiron_gaussian(5.5, 0.0) == 5.5, "kheiron_gaussian stddev=0 must return mean");
     CHK_ASSERT(kheiron_gaussian(-3.2, -1.0) == -3.2, "kheiron_gaussian stddev<0 must return mean");
 
     return 0;
 }
 
-/* Test 2.3: 1-Byte Writes with Hardware Guard Page Boundary (mmap + PROT_NONE) */
 static int test_bound_guard_page_1byte_overrun(void) {
     long page_size = sysconf(_SC_PAGESIZE);
     if (page_size <= 0) page_size = 4096;
 
-    /* Allocate 2 contiguous memory pages */
     uint8_t *two_pages = (uint8_t *)mmap(NULL, page_size * 2, PROT_READ | PROT_WRITE,
                                          MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     CHK_ASSERT(two_pages != MAP_FAILED, "mmap failed for guard page test");
 
-    /* Page 2 becomes a HARD GUARD PAGE (PROT_NONE) */
     int mres = mprotect(two_pages + page_size, page_size, PROT_NONE);
     CHK_ASSERT(mres == 0, "mprotect failed to set PROT_NONE guard page");
 
-    /* Run tests writing right up to the guard page boundary */
     const size_t test_sizes[] = {1, 2, 3, 4, 7, 8, 15, 16, 31, 32, 63, 64, 128, 256, 511, 512};
     size_t num_tests = sizeof(test_sizes) / sizeof(test_sizes[0]);
 
@@ -578,28 +532,23 @@ static int test_bound_guard_page_1byte_overrun(void) {
     return 0;
 }
 
-/* Test 2.4: 1 MB Rotation Threshold Boundary Transitions */
 static int test_bound_1mb_rotation_threshold_transitions(void) {
-    const size_t ROT_THRESHOLD = 1048576; /* 1 MB */
+    const size_t ROT_THRESHOLD = 1048576;
 
-    /* Case A: Step-by-step 1-byte transition across 1 MB */
     {
         kheiron_ctx_t ctx;
         CHK_ASSERT(kheiron_ctx_init(&ctx, NULL, 0) == 0, "ctx_init failed");
 
-        /* 1. Advance to exactly 1 MB - 1 byte */
         uint8_t *big = (uint8_t *)malloc(ROT_THRESHOLD - 1);
         CHK_ASSERT(big != NULL, "malloc failed");
         CHK_ASSERT(kheiron_ctx_fill(&ctx, big, ROT_THRESHOLD - 1) == 0, "fill failed");
         free(big);
         CHK_ASSERT(ctx.bytes_generated == ROT_THRESHOLD - 1, "Bytes generated mismatch before boundary");
 
-        /* 2. Write 1 byte to hit exactly 1 MB threshold */
         uint8_t b1 = 0;
         CHK_ASSERT(kheiron_ctx_fill(&ctx, &b1, 1) == 0, "fill 1 byte failed");
         CHK_ASSERT(ctx.bytes_generated == ROT_THRESHOLD, "Must equal exact 1MB threshold");
 
-        /* 3. Next write triggers key rotation and resets epoch */
         uint8_t b2 = 0;
         CHK_ASSERT(kheiron_ctx_fill(&ctx, &b2, 1) == 0, "fill after boundary failed");
         CHK_ASSERT(ctx.bytes_generated == 1, "Epoch bytes_generated should be 1 after rotation");
@@ -607,7 +556,6 @@ static int test_bound_1mb_rotation_threshold_transitions(void) {
         kheiron_ctx_wipe(&ctx);
     }
 
-    /* Case B: Spanning request crossing 1 MB boundary */
     {
         kheiron_ctx_t ctx;
         CHK_ASSERT(kheiron_ctx_init(&ctx, NULL, 0) == 0, "ctx_init failed");
@@ -636,7 +584,6 @@ static int test_bound_1mb_rotation_threshold_transitions(void) {
         kheiron_ctx_wipe(&ctx);
     }
 
-    /* Case C: Unaligned AVX2 chunk crossing 1 MB boundary */
     {
         kheiron_ctx_t ctx;
         CHK_ASSERT(kheiron_ctx_init(&ctx, NULL, 0) == 0, "ctx_init failed");
@@ -660,7 +607,6 @@ static int test_bound_1mb_rotation_threshold_transitions(void) {
         kheiron_ctx_wipe(&ctx);
     }
 
-    /* Case D: Forward Secrecy Keystream Non-Correlation Across Rotation */
     {
         kheiron_ctx_t ctx;
         CHK_ASSERT(kheiron_ctx_init(&ctx, NULL, 0) == 0, "ctx_init failed");
@@ -691,10 +637,6 @@ static int test_bound_1mb_rotation_threshold_transitions(void) {
 
     return 0;
 }
-
-/* ========================================================================= */
-/* MAIN RUNNER                                                               */
-/* ========================================================================= */
 
 int main(void) {
     printf("%s================================================================================%s\n", COLOR_CYAN, COLOR_RESET);

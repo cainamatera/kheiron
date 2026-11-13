@@ -20,7 +20,6 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
-/* Use KHEIRON_STATIC to allow multi-TU compilation without duplicate symbol collisions */
 #ifndef KHEIRON_STATIC
 #define KHEIRON_STATIC 1
 #endif
@@ -35,12 +34,12 @@ typedef enum {
 typedef test_status_t (*test_fn_t)(void);
 
 typedef struct {
-    const char *tier_id;     /* e.g., "Tier 1: Feature Coverage" */
-    const char *test_id;     /* e.g., "T1.01" */
-    const char *name;        /* e.g., "test_kheiron_init_cold" */
-    const char *description; /* e.g., "Verifies kheiron_init returns 0 on cold call" */
+    const char *tier_id;
+    const char *test_id;
+    const char *name;
+    const char *description;
     test_fn_t   func;
-    bool        is_isolated; /* run in child fork if true */
+    bool        is_isolated;
 } test_case_t;
 
 #define MAX_TESTS 512
@@ -62,7 +61,6 @@ static inline void test_register(const char *tier, const char *id, const char *n
     }
 }
 
-/* Informative assertion macros returning TEST_FAIL upon failure */
 #define ASSERT_TRUE(cond) do { \
     if (!(cond)) { \
         fprintf(stderr, "    [FAIL] %s:%d: Assertion failed: %s\n", __FILE__, __LINE__, #cond); \
@@ -146,7 +144,6 @@ static inline void test_register(const char *tier, const char *id, const char *n
     } \
 } while (0)
 
-/* Process isolation helper */
 static inline test_status_t test_run_isolated(test_fn_t fn) {
     fflush(stdout);
     fflush(stderr);
@@ -156,7 +153,7 @@ static inline test_status_t test_run_isolated(test_fn_t fn) {
         return TEST_FAIL;
     }
     if (pid == 0) {
-        alarm(5); /* 5-second watchdog against hangs or infinite loops */
+        alarm(5);
         test_status_t st = fn();
         _exit(st == TEST_PASS ? 0 : 1);
     }
@@ -174,4 +171,4 @@ static inline test_status_t test_run_isolated(test_fn_t fn) {
     return TEST_FAIL;
 }
 
-#endif /* KHEIRON_E2E_COMMON_H */
+#endif

@@ -14,7 +14,6 @@
 #define CANARY_POST_BYTE 0xA5
 #define SLACK_BYTE       0x77
 
-/* Helper to verify canaries */
 static int check_canaries(const uint8_t *pre, const uint8_t *post, size_t canary_len) {
     for (size_t i = 0; i < canary_len; i++) {
         if (pre[i] != CANARY_PRE_BYTE) {
@@ -31,7 +30,6 @@ static int check_canaries(const uint8_t *pre, const uint8_t *post, size_t canary
     return 0;
 }
 
-/* Reference pure scalar context fill implementing the exact scalar logic of Kheiron */
 static int reference_scalar_ctx_fill(kheiron_ctx_t *ctx, void *buf, size_t len) {
     if (!ctx || !buf) {
         return -1;
@@ -79,7 +77,6 @@ static int reference_scalar_ctx_fill(kheiron_ctx_t *ctx, void *buf, size_t len) 
     return 0;
 }
 
-/* Reference pure scalar multi-block generator */
 static void reference_scalar_blocks(uint32_t state[16], uint8_t *out, size_t num_blocks) {
     for (size_t b = 0; b < num_blocks; b++) {
         kheiron_chacha_block(state, out + b * 64);
@@ -98,10 +95,6 @@ static uint32_t xorshift32(uint32_t *rng) {
     *rng = x;
     return x;
 }
-
-/* ========================================================================= */
-/* SECTION 1: Buffer Size & Tail Fuzzing with Canaries                       */
-/* ========================================================================= */
 
 static int test_fuzz_single_length(size_t len, int use_ctx) {
     size_t total_alloc = CANARY_SIZE + len + CANARY_SIZE;
@@ -165,23 +158,21 @@ static int test_fuzz_single_length(size_t len, int use_ctx) {
 static int run_buffer_fuzz_suite(void) {
     printf("=== [CHALLENGER M1 Iter 2] Section 1: Buffer Sizes & Odd Tails Fuzzing ===\n");
 
-    /* 1.1 Canary Oracle Self-Test */
     {
         uint8_t mock[CANARY_SIZE * 2 + 10];
         memset(mock, CANARY_PRE_BYTE, CANARY_SIZE);
         memset(mock + CANARY_SIZE + 10, CANARY_POST_BYTE, CANARY_SIZE);
         assert(check_canaries(mock, mock + CANARY_SIZE + 10, CANARY_SIZE) == 0);
-        /* Corrupt pre-canary */
+
         mock[5] = 0x00;
         assert(check_canaries(mock, mock + CANARY_SIZE + 10, CANARY_SIZE) != 0);
         mock[5] = CANARY_PRE_BYTE;
-        /* Corrupt post-canary */
+
         mock[CANARY_SIZE + 10 + 7] = 0x00;
         assert(check_canaries(mock, mock + CANARY_SIZE + 10, CANARY_SIZE) != 0);
         printf("[+] Canary detector self-test verified.\n");
     }
 
-    /* 1.2 Exhaustive test of all lengths 0 through 4096 bytes */
     printf("[*] Exhaustive testing of ALL lengths from 0 to 4096 bytes (4097 lengths)...\n");
     for (size_t sz = 0; sz <= 4096; sz++) {
         if (test_fuzz_single_length(sz, 0) != 0) {
@@ -195,7 +186,6 @@ static int run_buffer_fuzz_suite(void) {
     }
     printf("    -> Exhaustive 0..4096 bytes PASSED with zero canary corruptions.\n");
 
-    /* 1.3 Strategic Boundary Cases (Non-multiples of 64 & 512, rotation limits, multi-MB) */
     printf("[*] Testing 90 strategic boundary lengths up to 10 MB...\n");
     size_t boundary_cases[] = {
         0, 1, 2, 3, 4, 7, 8, 15, 16, 31, 32, 47, 48,
@@ -231,28 +221,27 @@ static int run_buffer_fuzz_suite(void) {
     }
     printf("    -> 90 strategic boundary lengths PASSED.\n");
 
-    /* 1.4 Randomized Fuzzing: 2,500 trials up to 8 MB */
     printf("[*] Fuzzing 2,500 randomized lengths from 1 byte to 8 MB...\n");
     srand(424242);
     for (int iter = 0; iter < 2500; iter++) {
         size_t len;
         int mode = rand() % 5;
         if (mode == 0) {
-            /* Small: 1..512 */
+
             len = 1 + (rand() % 512);
         } else if (mode == 1) {
-            /* Non-multiples of 64 or 512 (odd tails) */
+
             size_t blocks = rand() % 50;
             size_t odd_tail = 1 + (rand() % 511);
             len = blocks * 512 + odd_tail;
         } else if (mode == 2) {
-            /* Near 1MB key rotation boundary */
+
             len = 1048576 - 5000 + (rand() % 10000);
         } else if (mode == 3) {
-            /* Medium: up to 100 KB */
+
             len = 1 + (rand() % 100000);
         } else {
-            /* Large: up to 8 MB */
+
             len = 1 + ((size_t)rand() * 4ULL) % 8388608ULL;
         }
 
@@ -269,10 +258,6 @@ static int run_buffer_fuzz_suite(void) {
     printf("    -> 2,500 randomized lengths PASSED with zero canary overruns.\n");
     return 0;
 }
-
-/* ========================================================================= */
-/* SECTION 2: Unaligned Pointer Offsets (+1 to +31 bytes, extending to +63)  */
-/* ========================================================================= */
 
 static int test_unaligned_single(size_t offset, size_t len, int use_ctx) {
     size_t total_alloc = 256 + CANARY_SIZE + offset + len + CANARY_SIZE + 256;
@@ -318,7 +303,6 @@ static int test_unaligned_single(size_t offset, size_t len, int use_ctx) {
         return -1;
     }
 
-    /* Verify pre-canary */
     for (size_t i = 0; i < CANARY_SIZE; i++) {
         if (pre_canary[i] != CANARY_PRE_BYTE) {
             fprintf(stderr, "FAIL: Pre-canary corrupted (offset=%zu, len=%zu, i=%zu)\n", offset, len, i);
@@ -327,7 +311,6 @@ static int test_unaligned_single(size_t offset, size_t len, int use_ctx) {
         }
     }
 
-    /* Verify slack bytes */
     for (size_t i = 0; i < offset; i++) {
         if (slack[i] != SLACK_BYTE) {
             fprintf(stderr, "FAIL: Slack bytes corrupted (offset=%zu, len=%zu, i=%zu)\n", offset, len, i);
@@ -336,7 +319,6 @@ static int test_unaligned_single(size_t offset, size_t len, int use_ctx) {
         }
     }
 
-    /* Verify post-canary */
     for (size_t i = 0; i < CANARY_SIZE; i++) {
         if (post_canary[i] != CANARY_POST_BYTE) {
             fprintf(stderr, "FAIL: Post-canary corrupted (offset=%zu, len=%zu, i=%zu)\n", offset, len, i);
@@ -345,7 +327,6 @@ static int test_unaligned_single(size_t offset, size_t len, int use_ctx) {
         }
     }
 
-    /* Verify payload non-zero if len >= 8 */
     if (len >= 8) {
         size_t non_zero = 0;
         size_t check_len = len < 64 ? len : 64;
@@ -364,7 +345,7 @@ static int test_unaligned_single(size_t offset, size_t len, int use_ctx) {
 }
 
 static int test_unaligned_stack(size_t offset, size_t len) {
-    /* Stack buffer with unaligned offset */
+
     uint8_t stack_buf[1024 + 128];
     uintptr_t addr = (uintptr_t)stack_buf;
     uintptr_t aligned_addr = (addr + 63) & ~(uintptr_t)63;
@@ -431,10 +412,6 @@ static int run_unaligned_suite(void) {
     return 0;
 }
 
-/* ========================================================================= */
-/* SECTION 3: Differential Oracle (AVX2 vs Scalar ChaCha20 Reference)        */
-/* ========================================================================= */
-
 static int run_differential_oracle_suite(void) {
     printf("=== [CHALLENGER M1 Iter 2] Section 3: Differential Oracle (AVX2 vs Scalar) ===\n");
 
@@ -447,7 +424,6 @@ static int run_differential_oracle_suite(void) {
         return 0;
     }
 
-    /* 3.1 RFC 7539 Official Vector */
     printf("[1/6] RFC 7539 official test vector bit-exact verification...\n");
     {
         const uint32_t rfc_key[8] = {
@@ -461,7 +437,7 @@ static int run_differential_oracle_suite(void) {
             0x61707865, 0x3320646e, 0x79622d32, 0x6b206574,
             rfc_key[0], rfc_key[1], rfc_key[2], rfc_key[3],
             rfc_key[4], rfc_key[5], rfc_key[6], rfc_key[7],
-            0x00000001, /* block counter = 1 */
+            0x00000001,
             rfc_nonce[0], rfc_nonce[1], rfc_nonce[2]
         };
         const uint8_t rfc_expected[64] = {
@@ -493,7 +469,6 @@ static int run_differential_oracle_suite(void) {
         printf("    -> RFC 7539 verified bit-exact on AVX2.\n");
     }
 
-    /* 3.2 25,000 Randomized States (512 bytes each = 12.8 MB) */
     printf("[2/6] Differential oracle across 25,000 randomized states (12.8 MB)...\n");
     {
         uint32_t rng = 0x12345678;
@@ -529,10 +504,9 @@ static int run_differential_oracle_suite(void) {
         printf("    -> 25,000 randomized states bit-for-bit identical.\n");
     }
 
-    /* 3.3 Exhaustive Counter Wraparound Oracle across all block boundary positions */
     printf("[3/6] Exhaustive counter wrap-around oracle (all 8 block alignment positions)...\n");
     {
-        /* Test wraparound starting at offsets from 0xFFFFFFE0 to 0x00000010 */
+
         for (uint64_t start = 0xFFFFFFE0ULL; start <= 0x100000010ULL; start++) {
             uint32_t s_avx[16], s_scalar[16];
             s_avx[0] = 0x61707865; s_avx[1] = 0x3320646e;
@@ -563,7 +537,6 @@ static int run_differential_oracle_suite(void) {
         printf("    -> Exhaustive counter wrap across 2^32-1 boundary bit-for-bit identical.\n");
     }
 
-    /* 3.4 Exhaustive Single-Chunk Differential Stream (1 to 4096 bytes) */
     printf("[4/6] Exhaustive single-chunk differential stream (1..4096 bytes)...\n");
     {
         for (size_t sz = 1; sz <= 4096; sz++) {
@@ -607,7 +580,6 @@ static int run_differential_oracle_suite(void) {
         printf("    -> Single-chunk sizes 1..4096 bytes PASSED.\n");
     }
 
-    /* 3.5 Randomized Multi-Call Streaming (3,000 requests, up to 8192B each) */
     printf("[5/6] Randomized multi-call streaming (3,000 calls, ~12 MB total)...\n");
     {
         kheiron_ctx_t ctx_avx, ctx_scalar;
@@ -622,7 +594,6 @@ static int run_differential_oracle_suite(void) {
         for (int req = 0; req < 3000; req++) {
             size_t req_sz = 1 + (xorshift32(&rng) % 8192);
 
-            /* Simulate synchronized key rotation */
             if (ctx_avx.bytes_generated + req_sz >= 1048000) {
                 ctx_avx.bytes_generated = 0;
                 ctx_scalar.bytes_generated = 0;
@@ -657,7 +628,6 @@ static int run_differential_oracle_suite(void) {
         printf("    -> 3,000 multi-call chunks (%zu bytes) bit-for-bit identical.\n", total_streamed);
     }
 
-    /* 3.6 Contiguous 10 MB Stream Verification */
     printf("[6/6] Contiguous 10 MB stream equivalence (163,840 ChaCha20 blocks)...\n");
     {
         size_t n_blocks = 163840;
@@ -705,22 +675,16 @@ static int run_differential_oracle_suite(void) {
     return 0;
 }
 
-/* ========================================================================= */
-/* SECTION 4: Context Fork & Memory Protection Verification                  */
-/* ========================================================================= */
-
 static int run_context_fork_safety_suite(void) {
     printf("=== [CHALLENGER M1 Iter 2] Section 4: Context Fork & Memory Protection Verification ===\n");
 
-    /* 4.1 Verify stack-allocated kheiron_protect_memory no-op behavior */
     {
         uint8_t stack_dummy[64];
-        /* Must be safely ignored (no madvise called on unaligned/subpage stack) */
+
         kheiron_protect_memory(stack_dummy, sizeof(stack_dummy));
         printf("[+] kheiron_protect_memory safely ignored unaligned sub-page address.\n");
     }
 
-    /* 4.2 Multi-fork stack context stress test (10 rapid stack forks) */
     printf("[*] Running 10 rapid forks with stack-allocated kheiron_ctx_t...\n");
     for (int i = 0; i < 10; i++) {
         int fds[2];

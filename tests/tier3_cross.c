@@ -1,9 +1,5 @@
 #include "e2e_common.h"
 
-/* ========================================================================= */
-/* Test T3.01: Forward Secrecy Rotation during Lemire Modulo Range Sampling  */
-/* ========================================================================= */
-
 static test_status_t test_t3_01_rotation_lemirerange(void) {
     const uint64_t ranges[] = {
         2, 3, 5, 7, 10, 100, 255, 1000, 65535, 1000000ULL,
@@ -28,7 +24,6 @@ static test_status_t test_t3_01_rotation_lemirerange(void) {
         }
     }
 
-    /* Statistical uniformity test across rotations */
     uint64_t bins[10] = {0};
     const uint64_t total_samples = 200000;
     for (uint64_t i = 0; i < total_samples; i++) {
@@ -42,13 +37,9 @@ static test_status_t test_t3_01_rotation_lemirerange(void) {
         double diff = (double)bins[i] - expected;
         chi2 += (diff * diff) / expected;
     }
-    ASSERT_TRUE(chi2 < 30.0); /* df=9, p=0.001 */
+    ASSERT_TRUE(chi2 < 30.0);
     return TEST_PASS;
 }
-
-/* ========================================================================= */
-/* Test T3.02: Multi-Threaded Concurrent Calls to Context API vs Global State*/
-/* ========================================================================= */
 
 typedef struct {
     int thread_id;
@@ -101,10 +92,6 @@ static test_status_t test_t3_02_multithread_ctx_global(void) {
     }
     return TEST_PASS;
 }
-
-/* ========================================================================= */
-/* Test T3.03: Unaligned Buffer Filling Spanning Across Key Rotation Epoch    */
-/* ========================================================================= */
 
 static test_status_t test_t3_03_unaligned_epoch_rollover(void) {
     const size_t CANARY_LEN = 128;
@@ -165,10 +152,6 @@ static test_status_t test_t3_03_unaligned_epoch_rollover(void) {
     }
     return TEST_PASS;
 }
-
-/* ========================================================================= */
-/* Test T3.04: Fork Safety with Active Initialized Contexts & Post-Fork Rot   */
-/* ========================================================================= */
 
 static test_status_t test_t3_04_fork_active_contexts(void) {
     ASSERT_EQ_INT(kheiron_init(), 0);
@@ -236,10 +219,6 @@ static test_status_t test_t3_04_fork_active_contexts(void) {
     return TEST_PASS;
 }
 
-/* ========================================================================= */
-/* Test T3.05: Volatile Memory Sanitization Pre/Post Reseed Lifecycle        */
-/* ========================================================================= */
-
 static test_status_t test_t3_05_secure_wipe_reseed_lifecycle(void) {
     uint8_t user_entropy[64];
     for (size_t i = 0; i < sizeof(user_entropy); i++) {
@@ -272,10 +251,6 @@ static test_status_t test_t3_05_secure_wipe_reseed_lifecycle(void) {
     return TEST_PASS;
 }
 
-/* ========================================================================= */
-/* Test T3.06: Ephemeral Context Subkey Derivation Intertwined with Epoch Rot*/
-/* ========================================================================= */
-
 static test_status_t test_t3_06_derive_epoch_isolation(void) {
     uint8_t seed[32] = "deterministic_derive_seed_test_";
     kheiron_ctx_t c1, c2;
@@ -306,19 +281,15 @@ static test_status_t test_t3_06_derive_epoch_isolation(void) {
     uint8_t post_c1[2048], post_c2[2048];
     ASSERT_EQ_INT(kheiron_ctx_fill(&c1, post_c1, sizeof(post_c1)), 0);
     ASSERT_EQ_INT(kheiron_ctx_fill(&c2, post_c2, sizeof(post_c2)), 0);
-    /* The 1024 bytes before rotation must be bit-for-bit identical */
+
     ASSERT_MEM_EQ(post_c1, post_c2, 1024);
-    /* After rotation, forward secrecy reseed ensures both advance independently */
+
     ASSERT_MEM_NEQ(post_c1 + 1024, post_c2 + 1024, 1024);
 
     kheiron_ctx_wipe(&c1);
     kheiron_ctx_wipe(&c2);
     return TEST_PASS;
 }
-
-/* ========================================================================= */
-/* Test T3.07: IEEE-754 Double & Float Uniformity Crossing 1 MB Rotation     */
-/* ========================================================================= */
 
 static test_status_t test_t3_07_float_double_rotation(void) {
     ASSERT_EQ_INT(kheiron_init(), 0);
@@ -352,13 +323,9 @@ static test_status_t test_t3_07_float_double_rotation(void) {
     return TEST_PASS;
 }
 
-/* ========================================================================= */
-/* Test T3.08: Modulo Bias-Free String Generation Crossing 1 MB Rotation     */
-/* ========================================================================= */
-
 static test_status_t test_t3_08_string_mask_batch_rotation(void) {
     const char *charset62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    const size_t STR_LEN = 1200000; /* 1.2M chars crosses 1MB boundary */
+    const size_t STR_LEN = 1200000;
 
     char *str = (char *)malloc(STR_LEN + 129);
     ASSERT_NOT_NULL(str);
@@ -382,10 +349,6 @@ static test_status_t test_t3_08_string_mask_batch_rotation(void) {
     free(str);
     return TEST_PASS;
 }
-
-/* ========================================================================= */
-/* Test T3.09: Fisher-Yates Array Shuffle Spanning Multiple Key Rotations    */
-/* ========================================================================= */
 
 static test_status_t test_t3_09_shuffle_multi_epoch(void) {
     const size_t N = 250000;
@@ -422,10 +385,6 @@ static test_status_t test_t3_09_shuffle_multi_epoch(void) {
     return TEST_PASS;
 }
 
-/* ========================================================================= */
-/* Test T3.10: Constant-Time Selection & Comparison Against Sanitized Memory */
-/* ========================================================================= */
-
 static test_status_t test_t3_10_consttime_cmp_wipe(void) {
     uint8_t a[64], b[64], zero[64];
     ASSERT_EQ_INT(kheiron_fill(a, sizeof(a)), 0);
@@ -451,10 +410,6 @@ static test_status_t test_t3_10_consttime_cmp_wipe(void) {
     ASSERT_EQ_INT(kheiron_consttime_cmp(a, NULL, 64), -1);
     return TEST_PASS;
 }
-
-/* ========================================================================= */
-/* Registration of Tier 3 Cross-Feature Interaction Tests (10 Tests)         */
-/* ========================================================================= */
 
 void register_tier3_tests(void) {
     const char *tier = "Tier 3: Cross-Feature Interactions";

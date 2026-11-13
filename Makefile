@@ -12,7 +12,6 @@ endif
 TARGET = bench_tests
 SRC = bench_tests.c
 
-# --- Milestone 2: Opaque-Box E2E Testing Suite Targets ---
 E2E_RUNNER = tests/e2e_runner
 E2E_SRCS   = tests/e2e_runner.c tests/tier1_features.c tests/tier2_boundaries.c tests/tier3_cross.c tests/tier4_scenarios.c
 E2E_CFLAGS = $(CFLAGS) -I.
@@ -57,7 +56,6 @@ e2e_scalar:
 
 e2e_all: e2e_test e2e_sanitize e2e_scalar
 
-# --- Milestone 3: Comparative OpenSSL Benchmark Suite Targets ---
 BENCH_TARGET = bench_compare
 BENCH_SRC    = bench_compare.c
 BENCH_CFLAGS = $(CFLAGS) -I.
@@ -76,7 +74,6 @@ bench_sanitize:
 	$(CC) $(BENCH_CFLAGS) -fsanitize=address,undefined -g $(BENCH_SRC) -o $(BENCH_TARGET)_san $(BENCH_LDFLAGS)
 	./$(BENCH_TARGET)_san --quick
 
-# --- Milestone 4: Tier 5 Adversarial Coverage Hardening Targets ---
 tier5_test:
 	$(CC) $(CFLAGS) -I. tests/tier5_adversarial_m4_1.c -o tests/tier5_adversarial_m4_1 $(LDFLAGS)
 	./tests/tier5_adversarial_m4_1
@@ -91,5 +88,3 @@ tier5_sanitize:
 
 clean:
 	rm -f $(TARGET) $(E2E_RUNNER) $(E2E_RUNNER)_san $(E2E_RUNNER)_scalar $(BENCH_TARGET) $(BENCH_TARGET)_san tests/tier5_adversarial_m4_1 tests/tier5_adversarial_m4_1_san tests/tier5_adversarial_m4_2 tests/tier5_adversarial_m4_2_san tests/tier5_adversarial_m4_2_scalar tests/test_dse_wipe *.o *.out
-
-

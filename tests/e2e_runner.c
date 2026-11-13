@@ -3,7 +3,6 @@
 test_case_t g_test_registry[MAX_TESTS];
 size_t g_test_count = 0;
 
-/* External tier registration functions */
 extern void register_tier1_tests(void);
 extern void register_tier2_tests(void);
 extern void register_tier3_tests(void);
@@ -15,13 +14,12 @@ static double get_time_ms(void) {
     return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1000000.0;
 }
 
-/* Helper determining whether a test is included in --quick smoke mode (<200ms) */
 static bool should_run_in_quick_mode(const test_case_t *tc) {
-    /* Tier 1 & 2: run the primary representative test (_01) for each domain */
+
     if (strncmp(tc->tier_id, "Tier 1", 6) == 0 || strncmp(tc->tier_id, "Tier 2", 6) == 0) {
         return (strstr(tc->name, "_01") != NULL);
     }
-    /* Tier 3: select key fast cross-feature interaction tests (threads, fork, lifecycle, wipe) */
+
     if (strncmp(tc->tier_id, "Tier 3", 6) == 0) {
         return (strcmp(tc->test_id, "T3.02") == 0 ||
                 strcmp(tc->test_id, "T3.04") == 0 ||
@@ -30,7 +28,7 @@ static bool should_run_in_quick_mode(const test_case_t *tc) {
                 strcmp(tc->test_id, "T3.08") == 0 ||
                 strcmp(tc->test_id, "T3.10") == 0);
     }
-    /* Tier 4: select representative application scenarios, skipping slow Monte Carlo (T4.01) */
+
     if (strncmp(tc->tier_id, "Tier 4", 6) == 0) {
         return (strcmp(tc->test_id, "T4.02") == 0 ||
                 strcmp(tc->test_id, "T4.05") == 0);
@@ -63,7 +61,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    /* Register all tiers */
     register_tier1_tests();
     register_tier2_tests();
     register_tier3_tests();

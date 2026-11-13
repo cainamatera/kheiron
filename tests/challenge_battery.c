@@ -28,10 +28,6 @@ static double get_time_ms(void) {
     } \
 } while (0)
 
-/* ========================================================================= */
-/* 1. Kheiron Jitter Flakiness & Statistical Behavior                         */
-/* ========================================================================= */
-
 #define JITTER_TRIALS 10000
 static bool challenge_jitter_flakiness(void) {
     printf("[CHALLENGE 1] Analyzing %d trials of kheiron_jitter_sample...\n", JITTER_TRIALS);
@@ -78,11 +74,9 @@ static bool challenge_jitter_flakiness(void) {
     printf("     Consecutive distinct < 24 violations: %d\n", consec_violations);
     printf("     Unique samples < 16 violations: %d\n", unique_violations);
 
-    /* Note: zero_samples > 0 is documented as finding for test_t1_jitter_01 */
     return (consec_violations == 0 && unique_violations == 0);
 }
 
-/* Concurrent Jitter Stress with 16 threads */
 #define NUM_JITTER_THREADS 16
 #define JITTER_PER_THREAD 2000
 
@@ -132,10 +126,6 @@ static bool challenge_jitter_concurrency(void) {
     return true;
 }
 
-/* ========================================================================= */
-/* 2. Kheiron RDTSC Monotonicity & Preemption Stress                          */
-/* ========================================================================= */
-
 #define NUM_RDTSC_THREADS 8
 #define RDTSC_CALLS 50000
 
@@ -154,7 +144,7 @@ static void *rdtsc_worker(void *arg) {
 
     for (int i = 0; i < RDTSC_CALLS; i++) {
         if (i % 1000 == 0) {
-            sched_yield(); /* Force thread preemption / core migration */
+            sched_yield();
         }
         uint64_t curr = kheiron_rdtsc();
         if (curr < prev) {
@@ -191,22 +181,15 @@ static bool challenge_rdtsc_stress(void) {
     return true;
 }
 
-/* ========================================================================= */
-/* 3. Kheiron OS Entropy Boundary and Stress Test                            */
-/* ========================================================================= */
-
 static bool challenge_os_entropy_boundaries(void) {
     printf("[CHALLENGE 4] Testing kheiron_os_entropy boundary conditions and rapid calls...\n");
-    
-    /* 1. NULL buffer with len == 0 -> MUST return 0 */
+
     CHALLENGE_ASSERT(kheiron_os_entropy(NULL, 0) == 0, "kheiron_os_entropy(NULL, 0) must return 0");
 
-    /* 2. NULL buffer with len > 0 -> MUST return -1 */
     CHALLENGE_ASSERT(kheiron_os_entropy(NULL, 1) == -1, "kheiron_os_entropy(NULL, 1) must return -1");
     CHALLENGE_ASSERT(kheiron_os_entropy(NULL, 32) == -1, "kheiron_os_entropy(NULL, 32) must return -1");
     CHALLENGE_ASSERT(kheiron_os_entropy(NULL, 4096) == -1, "kheiron_os_entropy(NULL, 4096) must return -1");
 
-    /* 3. Non-NULL buffer with len == 0 -> MUST return 0, no write */
     uint8_t canary[16];
     memset(canary, 0xAA, sizeof(canary));
     CHALLENGE_ASSERT(kheiron_os_entropy(canary, 0) == 0, "kheiron_os_entropy(canary, 0) must return 0");
@@ -214,22 +197,19 @@ static bool challenge_os_entropy_boundaries(void) {
         CHALLENGE_ASSERT(canary[i] == 0xAA, "kheiron_os_entropy wrote to buffer when len == 0");
     }
 
-    /* 4. Rapid calls in tight loop (5,000 calls of 32 bytes) */
     uint8_t entropy_buf[32];
     for (int i = 0; i < 5000; i++) {
         int ret = kheiron_os_entropy(entropy_buf, sizeof(entropy_buf));
         CHALLENGE_ASSERT(ret == 0, "kheiron_os_entropy failed in tight loop");
     }
 
-    /* 5. Large entropy request (1MB) */
     size_t large_sz = 1024 * 1024;
     uint8_t *large_buf = (uint8_t *)malloc(large_sz);
     CHALLENGE_ASSERT(large_buf != NULL, "malloc failed");
     memset(large_buf, 0, large_sz);
     int ret_large = kheiron_os_entropy(large_buf, large_sz);
     CHALLENGE_ASSERT(ret_large == 0, "kheiron_os_entropy failed on 1MB request");
-    
-    /* Check non-degeneracy of 1MB OS entropy */
+
     size_t nonzero_count = 0;
     for (size_t i = 0; i < large_sz; i++) {
         if (large_buf[i] != 0) nonzero_count++;
@@ -241,21 +221,14 @@ static bool challenge_os_entropy_boundaries(void) {
     return true;
 }
 
-/* ========================================================================= */
-/* 4. Defensive NULL Pointer Resilience Across Entire Public API              */
-/* ========================================================================= */
-
 static bool challenge_defensive_null_safety(void) {
     printf("[CHALLENGE 5] Verifying defensive NULL pointer safety across all public APIs...\n");
 
-    /* kheiron_fill */
     CHALLENGE_ASSERT(kheiron_fill(NULL, 10) == -1, "kheiron_fill(NULL, 10) != -1");
     CHALLENGE_ASSERT(kheiron_fill(NULL, 0) == -1, "kheiron_fill(NULL, 0) != -1");
 
-    /* kheiron_ctx_init */
     CHALLENGE_ASSERT(kheiron_ctx_init(NULL, "seed", 4) == -1, "kheiron_ctx_init(NULL, ...) != -1");
 
-    /* kheiron_ctx_fill */
     kheiron_ctx_t ctx;
     memset(&ctx, 0, sizeof(ctx));
     CHALLENGE_ASSERT(kheiron_ctx_init(&ctx, NULL, 0) == 0, "kheiron_ctx_init auto-seed failed");
@@ -265,39 +238,29 @@ static bool challenge_defensive_null_safety(void) {
     CHALLENGE_ASSERT(kheiron_ctx_fill(&ctx, NULL, 0) == -1, "kheiron_ctx_fill(&ctx, NULL, 0) != -1");
     kheiron_ctx_wipe(&ctx);
 
-    /* kheiron_ctx_wipe & kheiron_secure_wipe on NULL (must not crash) */
     kheiron_ctx_wipe(NULL);
     kheiron_secure_wipe(NULL, 1024);
 
-    /* kheiron_string */
     char str_buf[16];
     CHALLENGE_ASSERT(kheiron_string(NULL, 10, "abc") == -1, "kheiron_string(NULL, ...) != -1");
     CHALLENGE_ASSERT(kheiron_string(str_buf, 10, NULL) == -1, "kheiron_string(..., NULL) != -1");
 
-    /* kheiron_shuffle */
     CHALLENGE_ASSERT(kheiron_shuffle(NULL, 10, 4) == -1, "kheiron_shuffle(NULL, ...) != -1");
 
-    /* kheiron_derive */
     CHALLENGE_ASSERT(kheiron_ctx_init(&ctx, NULL, 0) == 0, "ctx init failed");
     CHALLENGE_ASSERT(kheiron_derive(NULL, b, 32, "info", 4) == -1, "kheiron_derive(NULL, ...) != -1");
     CHALLENGE_ASSERT(kheiron_derive(&ctx, NULL, 32, "info", 4) == -1, "kheiron_derive(..., NULL buf, ...) != -1");
     CHALLENGE_ASSERT(kheiron_derive(&ctx, b, 32, NULL, 4) == -1, "kheiron_derive(..., NULL info, ...) != -1");
     kheiron_ctx_wipe(&ctx);
 
-    /* kheiron_reseed */
     CHALLENGE_ASSERT(kheiron_reseed(NULL, 32) == -1, "kheiron_reseed(NULL, 32) != -1");
 
-    /* kheiron_consttime_cmp */
     CHALLENGE_ASSERT(kheiron_consttime_cmp(NULL, b, 16) == -1, "kheiron_consttime_cmp(NULL, b, 16) != -1");
     CHALLENGE_ASSERT(kheiron_consttime_cmp(b, NULL, 16) == -1, "kheiron_consttime_cmp(b, NULL, 16) != -1");
 
     printf("  -> All defensive NULL pointer checks verified.\n");
     return true;
 }
-
-/* ========================================================================= */
-/* 5. Process Isolation & Crash Resilience Oracle Testing                     */
-/* ========================================================================= */
 
 static int simulate_crash_segv(void) {
     volatile int *p = (volatile int *)0;
@@ -344,10 +307,6 @@ static bool challenge_isolation_oracle(void) {
     return true;
 }
 
-/* ========================================================================= */
-/* 6. Quick Smoke Mode Timing & Repeatability Stress                          */
-/* ========================================================================= */
-
 static bool challenge_quick_mode_timing(void) {
     printf("[CHALLENGE 7] Stressing ./tests/e2e_runner --quick across 10 consecutive invocations...\n");
     double max_duration = 0.0;
@@ -371,10 +330,6 @@ static bool challenge_quick_mode_timing(void) {
     CHALLENGE_ASSERT(max_duration < 200.0, "--quick exceeded acceptable SLA latency ceiling");
     return true;
 }
-
-/* ========================================================================= */
-/* Main Challenge Runner                                                     */
-/* ========================================================================= */
 
 int main(void) {
     printf("======================================================================\n");

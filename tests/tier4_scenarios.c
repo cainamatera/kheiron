@@ -1,11 +1,7 @@
 #include "e2e_common.h"
 
-/* ========================================================================= */
-/* Scenario 1: Monte Carlo Pi Estimation & Circle Sampling                   */
-/* ========================================================================= */
-
 static test_status_t test_t4_01_monte_carlo_pi(void) {
-    const uint64_t N = 3000000; /* 3 million samples */
+    const uint64_t N = 3000000;
     uint64_t inside_double = 0;
     uint64_t inside_float = 0;
 
@@ -27,7 +23,6 @@ static test_status_t test_t4_01_monte_carlo_pi(void) {
     double err_float = fabs(pi_float - 3.14159265358979323846);
     ASSERT_TRUE(err_float < 0.0050);
 
-    /* Equal-Area Annular Ring Chi-Squared Test */
     const uint64_t N_DISK = 500000;
     uint64_t ring_counts[10] = {0};
     for (uint64_t i = 0; i < N_DISK; i++) {
@@ -43,13 +38,9 @@ static test_status_t test_t4_01_monte_carlo_pi(void) {
         double d = (double)ring_counts[k] - expected_ring;
         chi2 += (d * d) / expected_ring;
     }
-    ASSERT_TRUE(chi2 < 30.0); /* df=9, p=0.001 */
+    ASSERT_TRUE(chi2 < 30.0);
     return TEST_PASS;
 }
-
-/* ========================================================================= */
-/* Scenario 2: High-Throughput TLS 1.3 Session Cryptographic Engine          */
-/* ========================================================================= */
 
 typedef struct {
     uint64_t hi;
@@ -121,10 +112,6 @@ static test_status_t test_t4_02_tls_crypto_engine(void) {
     return TEST_PASS;
 }
 
-/* ========================================================================= */
-/* Scenario 3: Fisher-Yates Array Shuffling Over Large Datasets              */
-/* ========================================================================= */
-
 static test_status_t test_t4_03_fisher_yates_scale(void) {
     const size_t N = 100000;
     uint64_t *arr = (uint64_t *)malloc(N * sizeof(uint64_t));
@@ -142,7 +129,7 @@ static test_status_t test_t4_03_fisher_yates_scale(void) {
         ASSERT_TRUE(val < N);
         size_t byte_idx = val / 8;
         uint8_t mask = (uint8_t)(1 << (val % 8));
-        ASSERT_TRUE((bitset[byte_idx] & mask) == 0); /* Zero duplicates */
+        ASSERT_TRUE((bitset[byte_idx] & mask) == 0);
         bitset[byte_idx] |= mask;
         displacement_sum += fabs((double)val - (double)i);
     }
@@ -152,7 +139,6 @@ static test_status_t test_t4_03_fisher_yates_scale(void) {
     ASSERT_TRUE(avg_displacement > 31000.0 && avg_displacement < 35666.0);
     free(arr);
 
-    /* 4-Card Permutation Chi-Squared Uniformity (M = 120,000 trials) */
     const uint64_t M = 120000;
     uint64_t perm_counts[24] = {0};
     uint8_t deck[4];
@@ -181,16 +167,12 @@ static test_status_t test_t4_03_fisher_yates_scale(void) {
         double diff = (double)perm_counts[i] - expected;
         chi2 += (diff * diff) / expected;
     }
-    ASSERT_TRUE(chi2 < 55.0); /* df=23, p=0.0002 */
+    ASSERT_TRUE(chi2 < 55.0);
     return TEST_PASS;
 }
 
-/* ========================================================================= */
-/* Scenario 4: Streaming One-Time Pad Buffer Generation                      */
-/* ========================================================================= */
-
 static test_status_t test_t4_04_streaming_pad(void) {
-    size_t total_bytes = 20ULL * 1024ULL * 1024ULL; /* 20 MB */
+    size_t total_bytes = 20ULL * 1024ULL * 1024ULL;
     const size_t CHUNK_SIZE = 65536;
     uint8_t *chunk = (uint8_t *)malloc(CHUNK_SIZE);
     ASSERT_NOT_NULL(chunk);
@@ -231,7 +213,6 @@ static test_status_t test_t4_04_streaming_pad(void) {
     }
     free(chunk);
 
-    /* 1. Shannon Entropy */
     double entropy = 0.0;
     double total_d = (double)total_bytes;
     for (int i = 0; i < 256; i++) {
@@ -242,7 +223,6 @@ static test_status_t test_t4_04_streaming_pad(void) {
     }
     ASSERT_TRUE(entropy >= 7.9990);
 
-    /* 2. Chi-Squared Test on Byte Frequencies */
     double expected = total_d / 256.0;
     double chi2 = 0.0;
     for (int i = 0; i < 256; i++) {
@@ -251,7 +231,6 @@ static test_status_t test_t4_04_streaming_pad(void) {
     }
     ASSERT_TRUE(chi2 >= 160.0 && chi2 <= 360.0);
 
-    /* 3. Serial Autocorrelation */
     if (pair_count > 0) {
         double num = (double)pair_count * sum_xy - sum_x * sum_y;
         double den = sqrt(((double)pair_count * sum_xx - sum_x * sum_x) *
@@ -261,10 +240,6 @@ static test_status_t test_t4_04_streaming_pad(void) {
     }
     return TEST_PASS;
 }
-
-/* ========================================================================= */
-/* Scenario 5: Multi-Threaded Worker Pool with Heterogeneous Random Data Types*/
-/* ========================================================================= */
 
 #define POOL_THREADS 16
 #define POOL_TASKS_PER_THREAD 5000
@@ -380,10 +355,6 @@ static test_status_t test_t4_05_worker_pool(void) {
     }
     return TEST_PASS;
 }
-
-/* ========================================================================= */
-/* Registration of Tier 4 Real-World Application Scenario Tests (5 Tests)    */
-/* ========================================================================= */
 
 void register_tier4_tests(void) {
     const char *tier = "Tier 4: Real-World Application Scenarios";

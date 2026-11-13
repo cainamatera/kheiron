@@ -73,10 +73,6 @@ KHEIRON_API uint32_t kheiron_consttime_select_u32(uint32_t mask, uint32_t a, uin
 
 #include <math.h>
 
-/* ========================================================================= */
-/* KHEIRON AVX2 VECTORIZATION & PORTABILITY DISPATCH                         */
-/* ========================================================================= */
-
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && !defined(KHEIRON_NO_AVX2)
     #define KHEIRON_HAVE_AVX2 1
     #include <immintrin.h>
@@ -150,6 +146,8 @@ KHEIRON_API int kheiron_os_entropy(void *buf, size_t len) {
     if (BCryptGenRandom(NULL, p, (ULONG)len, BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0) {
         return 0;
     }
+    kheiron_secure_wipe(buf, len);
+    return -1;
 #elif defined(__APPLE__) || defined(__MACH__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
     arc4random_buf(p, len);
     return 0;
@@ -225,21 +223,26 @@ KHEIRON_API uint64_t kheiron_rdtsc(void) {
 }
 
 KHEIRON_API uint64_t kheiron_jitter_sample(void) {
-    uint64_t res = 0;
+    uint64_t res = kheiron_rdtsc() ^ 0x9E3779B97F4A7C15ULL;
     for (int i = 0; i < 64; i++) {
         uint64_t t0 = kheiron_rdtsc();
 #if defined(__GNUC__) || defined(__clang__)
-        for (int j = 0; j < 8; j++) {
+        for (int j = 0; j < 8 + (int)(res & 7ULL); j++) {
             __asm__ __volatile__("" : "+r"(j) :: "memory");
         }
 #else
-        for (int j = 0; j < 8; j++) {
+        for (int j = 0; j < 8 + (int)(res & 7ULL); j++) {
             (void)j;
         }
 #endif
         uint64_t t1 = kheiron_rdtsc();
-        uint64_t bit = (t1 - t0) & 1ULL;
-        res = (res << 1) | bit;
+        uint64_t delta = (t1 - t0) ^ (t1 >> 3) ^ (t0 << 7);
+        res = ((res << 1) | (res >> 63)) ^ (delta + 0x9E3779B97F4A7C15ULL + (uint64_t)i);
+        res ^= res >> 30;
+        res *= 0xBF58476D1CE4E5B9ULL;
+        res ^= res >> 27;
+        res *= 0x94D049BB133111EBULL;
+        res ^= res >> 31;
     }
     return res;
 }
@@ -437,14 +440,6 @@ static inline void kheiron_chacha20_blocks_avx2(uint32_t state[16], uint8_t *out
 }
 #endif
 
-/*
- * kheiron_protect_memory: Memory protection helper.
- * NOTE: Page-level advisories (such as MADV_DONTDUMP or VirtualLock) operate at
- * OS page granularity. To prevent disastrous page-table side effects (such as
- * zeroing stack frames or heap metadata upon fork), this helper must only be
- * applied to dedicated, page-aligned buffers. It must never be applied to stack,
- * heap arena chunks, or thread-local storage.
- */
 static inline void kheiron_protect_memory(void *addr, size_t len) {
 #if defined(_WIN32) || defined(_WIN64)
     VirtualLock(addr, len);
@@ -470,7 +465,7 @@ static inline void kheiron_protect_memory(void *addr, size_t len) {
 #endif
 }
 
-#define KHEIRON_KEY_ROTATION_THRESHOLD (1024 * 1024) /* 1 MB = 1,048,576 bytes */
+#define KHEIRON_KEY_ROTATION_THRESHOLD (1024 * 1024)
 
 static KHEIRON_THREAD_LOCAL uint32_t kheiron_state[16];
 static KHEIRON_THREAD_LOCAL int kheiron_initialized = 0;

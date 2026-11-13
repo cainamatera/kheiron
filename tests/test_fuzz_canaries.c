@@ -68,9 +68,8 @@ static int test_single_length(size_t len, int use_ctx) {
         return -1;
     }
 
-    /* Verify payload was populated if len > 0 */
     if (len > 0) {
-        /* Check that it is not all zero (with overwhelming probability) */
+
         size_t non_zero = 0;
         size_t sample_size = len < 64 ? len : 64;
         for (size_t i = 0; i < sample_size; i++) {
@@ -90,7 +89,6 @@ static int test_single_length(size_t len, int use_ctx) {
 int main(void) {
     printf("=== [CHALLENGER M1-1] Fuzzing Buffer Lengths & Tails (1B to 10MB) ===\n");
 
-    /* 1. Critical boundary test cases */
     size_t boundary_cases[] = {
         0, 1, 2, 3, 4, 7, 8, 15, 16, 31, 32,
         63, 64, 65, 127, 128, 129,
@@ -133,23 +131,22 @@ int main(void) {
     }
     printf("      -> kheiron_ctx_fill boundaries PASSED.\n");
 
-    /* 2. Randomized Fuzzing between 1 byte and 10 MB */
     printf("[3/3] Fuzzing 1,000 randomized lengths from 1 byte to 10 MB...\n");
     srand(1337);
     for (int iter = 0; iter < 1000; iter++) {
         size_t len;
         int mode = rand() % 4;
         if (mode == 0) {
-            /* Small lengths: 1 to 1024 */
+
             len = 1 + (rand() % 1024);
         } else if (mode == 1) {
-            /* Medium lengths around 512-byte boundaries */
+
             len = (rand() % 20000);
         } else if (mode == 2) {
-            /* Around 1MB rotation threshold */
+
             len = 1048576 - 2000 + (rand() % 4000);
         } else {
-            /* Large lengths up to 10 MB */
+
             len = 1 + ((size_t)rand() * 5ULL) % 10485760ULL;
         }
 

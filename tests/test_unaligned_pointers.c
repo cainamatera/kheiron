@@ -10,8 +10,7 @@
 #define CANARY_POST_BYTE 0xC3
 
 static int test_unaligned(size_t offset, size_t len, int use_ctx) {
-    /* Allocate 64-byte aligned block large enough for:
-       align_pad (64) + canary (CANARY_SIZE) + offset (up to 64) + len + canary (CANARY_SIZE) + pad */
+
     size_t total_alloc = 256 + CANARY_SIZE + offset + len + CANARY_SIZE + 256;
     uint8_t *raw = (uint8_t *)malloc(total_alloc);
     if (!raw) {
@@ -19,23 +18,16 @@ static int test_unaligned(size_t offset, size_t len, int use_ctx) {
         return -1;
     }
 
-    /* Compute 64-byte aligned base */
     uintptr_t raw_addr = (uintptr_t)raw;
     uintptr_t aligned_addr = (raw_addr + 63) & ~(uintptr_t)63;
     uint8_t *base = (uint8_t *)aligned_addr;
 
-    /* Buffer layout:
-       [base .. base + CANARY_SIZE - 1]: pre_canary
-       [base + CANARY_SIZE + offset .. base + CANARY_SIZE + offset + len - 1]: target payload
-       [base + CANARY_SIZE + offset + len .. base + CANARY_SIZE + offset + len + CANARY_SIZE - 1]: post_canary
-    */
     uint8_t *pre_canary = base;
     uint8_t *payload = base + CANARY_SIZE + offset;
     uint8_t *post_canary = payload + len;
 
-    /* Fill canaries */
     memset(pre_canary, CANARY_PRE_BYTE, CANARY_SIZE);
-    /* Also fill intermediate slack between pre_canary and payload if offset > 0 */
+
     if (offset > 0) {
         memset(base + CANARY_SIZE, 0x77, offset);
     }
@@ -62,7 +54,6 @@ static int test_unaligned(size_t offset, size_t len, int use_ctx) {
         return -1;
     }
 
-    /* Check pre-canary */
     for (size_t i = 0; i < CANARY_SIZE; i++) {
         if (pre_canary[i] != CANARY_PRE_BYTE) {
             fprintf(stderr, "FAIL: Pre-canary corrupted for offset %zu, len %zu at idx %zu (0x%02X vs 0x%02X)\n",
@@ -72,7 +63,6 @@ static int test_unaligned(size_t offset, size_t len, int use_ctx) {
         }
     }
 
-    /* Check slack bytes */
     for (size_t i = 0; i < offset; i++) {
         if ((base + CANARY_SIZE)[i] != 0x77) {
             fprintf(stderr, "FAIL: Slack bytes corrupted for offset %zu, len %zu at idx %zu\n",
@@ -82,7 +72,6 @@ static int test_unaligned(size_t offset, size_t len, int use_ctx) {
         }
     }
 
-    /* Check post-canary */
     for (size_t i = 0; i < CANARY_SIZE; i++) {
         if (post_canary[i] != CANARY_POST_BYTE) {
             fprintf(stderr, "FAIL: Post-canary corrupted for offset %zu, len %zu at idx %zu (0x%02X vs 0x%02X)\n",
@@ -92,7 +81,6 @@ static int test_unaligned(size_t offset, size_t len, int use_ctx) {
         }
     }
 
-    /* Check non-zero payload if len >= 8 */
     if (len >= 8) {
         size_t non_zero = 0;
         size_t check_len = len < 64 ? len : 64;
@@ -129,12 +117,12 @@ int main(void) {
     for (size_t offset = 0; offset <= 31; offset++) {
         for (size_t l = 0; l < num_lens; l++) {
             size_t len = test_lens[l];
-            /* Test kheiron_fill */
+
             if (test_unaligned(offset, len, 0) != 0) {
                 fprintf(stderr, "FAIL: kheiron_fill offset +%zu, len %zu\n", offset, len);
                 return 1;
             }
-            /* Test kheiron_ctx_fill */
+
             if (test_unaligned(offset, len, 1) != 0) {
                 fprintf(stderr, "FAIL: kheiron_ctx_fill offset +%zu, len %zu\n", offset, len);
                 return 1;

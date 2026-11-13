@@ -42,10 +42,6 @@ static int g_failed = 0;
     } \
 } while (0)
 
-/* ========================================================================= */
-/* Test 1: Massive Multi-Threaded Worker Pool (32 threads x 10,000 tasks)    */
-/* ========================================================================= */
-
 #define POOL_STRESS_THREADS 32
 #define POOL_STRESS_TASKS   10000
 
@@ -61,7 +57,6 @@ static void *worker_pool_stress(void *arg) {
     w->success = 0;
     uint64_t h = 14695981039346656037ULL;
 
-    /* Capture initial 64 bytes */
     if (kheiron_fill(w->initial_bytes, 64) != 0) return NULL;
     for (int i = 0; i < 64; i++) {
         h = (h ^ w->initial_bytes[i]) * 1099511628211ULL;
@@ -101,7 +96,7 @@ static void *worker_pool_stress(void *arg) {
                 break;
             }
             case 5: {
-                /* Variable unaligned buffer size */
+
                 size_t len = 1 + (i % 1024);
                 uint8_t stack_buf[1025];
                 if (kheiron_fill(stack_buf, len) != 0) return NULL;
@@ -111,7 +106,7 @@ static void *worker_pool_stress(void *arg) {
                 break;
             }
             case 6: {
-                /* Context creation, seeding, filling, wiping */
+
                 kheiron_ctx_t ctx;
                 uint8_t seed[32];
                 if (kheiron_fill(seed, 32) != 0) return NULL;
@@ -145,10 +140,10 @@ static void *worker_pool_stress(void *arg) {
                 break;
             }
             case 10: {
-                /* Extreme range boundary test */
+
                 uint64_t r1 = kheiron_range_u64(42, 42);
                 if (r1 != 42) return NULL;
-                uint64_t r2 = kheiron_range_u64(10, 5); /* inverted */
+                uint64_t r2 = kheiron_range_u64(10, 5);
                 if (r2 != 10) return NULL;
                 h = (h ^ r1 ^ r2) * 1099511628211ULL;
                 break;
@@ -180,7 +175,6 @@ static int test_stress_thread_pool(void) {
         STRESS_ASSERT_INT_EQ(args[i].success, 1, "worker thread reported failure");
     }
 
-    /* Verify uniqueness of all thread hashes and initial blocks */
     for (int i = 0; i < POOL_STRESS_THREADS; i++) {
         for (int j = i + 1; j < POOL_STRESS_THREADS; j++) {
             STRESS_ASSERT(args[i].hash != args[j].hash, "Hash collision between threads!");
@@ -193,23 +187,19 @@ static int test_stress_thread_pool(void) {
     return TEST_OK;
 }
 
-/* ========================================================================= */
-/* Test 2: Multi-Threaded Context Isolation & Determinism Under Epoch Rollover*/
-/* ========================================================================= */
-
 #define CTX_STRESS_THREADS 16
-#define CTX_DRAW_SIZE      (2 * 1024 * 1024) /* 2 MB: forces 2 rotation epochs */
+#define CTX_DRAW_SIZE      (2 * 1024 * 1024)
 
 typedef struct {
     int thread_id;
-    uint8_t det_digest[32];   /* Digest from shared deterministic seed */
-    uint8_t uniq_digest[32];  /* Digest from unique seed */
-    uint8_t global_digest[32];/* Digest from global thread-local state */
+    uint8_t det_digest[32];
+    uint8_t uniq_digest[32];
+    uint8_t global_digest[32];
     int success;
 } ctx_stress_arg_t;
 
 static void compute_digest(const uint8_t *data, size_t len, uint8_t digest[32]) {
-    /* Simple 256-bit hash for stream summary */
+
     uint64_t h[4] = {
         0x6a09e667f3bcc908ULL, 0xbb67ae8584caa73bULL,
         0x3c6ef372fe94f82bULL, 0xa54ff53a5f1d36f1ULL
@@ -224,7 +214,6 @@ static void *worker_ctx_isolation(void *arg) {
     ctx_stress_arg_t *t = (ctx_stress_arg_t *)arg;
     t->success = 0;
 
-    /* 1. Intra-thread cloning determinism: clone context produces identical initial stream */
     kheiron_ctx_t ctx_orig, ctx_clone;
     if (kheiron_ctx_init(&ctx_orig, "seed_for_clone", 14) != 0) return NULL;
     memcpy(&ctx_clone, &ctx_orig, sizeof(kheiron_ctx_t));
@@ -240,7 +229,6 @@ static void *worker_ctx_isolation(void *arg) {
     uint8_t *buf = (uint8_t *)malloc(CTX_DRAW_SIZE);
     if (!buf) return NULL;
 
-    /* 2. Static seed anti-collision: verify rdtsc prevents multi-thread static seed collision */
     kheiron_ctx_t det_ctx;
     const char det_seed[] = "KHEIRON_STATIC_SEED_CONCURRENCY";
     if (kheiron_ctx_init(&det_ctx, det_seed, strlen(det_seed)) != 0) { free(buf); return NULL; }
@@ -248,7 +236,6 @@ static void *worker_ctx_isolation(void *arg) {
     kheiron_ctx_wipe(&det_ctx);
     compute_digest(buf, CTX_DRAW_SIZE, t->det_digest);
 
-    /* 3. Context with per-thread unique seed */
     kheiron_ctx_t uniq_ctx;
     uint8_t uniq_seed[32];
     for (size_t i = 0; i < 32; i++) uniq_seed[i] = (uint8_t)(t->thread_id * 31 + i);
@@ -257,7 +244,6 @@ static void *worker_ctx_isolation(void *arg) {
     kheiron_ctx_wipe(&uniq_ctx);
     compute_digest(buf, CTX_DRAW_SIZE, t->uniq_digest);
 
-    /* 4. Global thread-local state */
     if (kheiron_fill(buf, CTX_DRAW_SIZE) != 0) { free(buf); return NULL; }
     compute_digest(buf, CTX_DRAW_SIZE, t->global_digest);
 
@@ -283,12 +269,6 @@ static int test_stress_context_isolation(void) {
         STRESS_ASSERT_INT_EQ(args[i].success, 1, "ctx isolation thread failed");
     }
 
-    /* Verification:
-       - All threads MUST produce mutually distinct det_digest (anti-collision on static seeds).
-       - All threads MUST produce mutually distinct uniq_digest (context isolation).
-       - All threads MUST produce mutually distinct global_digest (thread-local isolation).
-       - det_digest != uniq_digest != global_digest.
-    */
     for (int i = 0; i < CTX_STRESS_THREADS; i++) {
         for (int j = i + 1; j < CTX_STRESS_THREADS; j++) {
             STRESS_ASSERT(memcmp(args[i].det_digest, args[j].det_digest, 32) != 0,
@@ -304,10 +284,6 @@ static int test_stress_context_isolation(void) {
            CTX_STRESS_THREADS);
     return TEST_OK;
 }
-
-/* ========================================================================= */
-/* Test 3: Thread Churn & TLS Lifecycle Sanitizer Stress                     */
-/* ========================================================================= */
 
 #define CHURN_ROUNDS 25
 #define CHURN_BATCH  4
@@ -343,10 +319,6 @@ static int test_stress_thread_churn(void) {
     return TEST_OK;
 }
 
-/* ========================================================================= */
-/* Test 4: Sequential Process Forks & Child State Divergence                 */
-/* ========================================================================= */
-
 #define NUM_SEQ_FORKS 16
 
 static int test_stress_sequential_forks(void) {
@@ -358,7 +330,6 @@ static int test_stress_sequential_forks(void) {
     uint8_t child_initial[NUM_SEQ_FORKS][256];
     uint8_t child_post_rot[NUM_SEQ_FORKS][64];
 
-    /* Initial parent draw */
     STRESS_ASSERT_INT_EQ(kheiron_fill(parent_blocks[0], 256), 0, "parent pre-fork fill");
 
     for (int k = 0; k < NUM_SEQ_FORKS; k++) {
@@ -369,13 +340,12 @@ static int test_stress_sequential_forks(void) {
         STRESS_ASSERT(pid >= 0, "fork failed");
 
         if (pid == 0) {
-            /* Child process */
+
             close(pipe_fd[0]);
 
             uint8_t c_init[256];
             if (kheiron_fill(c_init, 256) != 0) exit(10);
 
-            /* Trigger 1MB key rotation rollover inside child */
             size_t drain_len = 1048576 + 512;
             uint8_t *drain = (uint8_t *)malloc(drain_len);
             if (!drain || kheiron_fill(drain, drain_len) != 0) exit(11);
@@ -390,7 +360,7 @@ static int test_stress_sequential_forks(void) {
             close(pipe_fd[1]);
             exit(0);
         } else {
-            /* Parent process */
+
             close(pipe_fd[1]);
             ssize_t r1 = read(pipe_fd[0], child_initial[k], 256);
             ssize_t r2 = read(pipe_fd[0], child_post_rot[k], 64);
@@ -404,13 +374,10 @@ static int test_stress_sequential_forks(void) {
             STRESS_ASSERT(WIFEXITED(status) && WEXITSTATUS(status) == 0,
                           "child process failed or crashed");
 
-            /* Parent draw after each fork */
             STRESS_ASSERT_INT_EQ(kheiron_fill(parent_blocks[k + 1], 256), 0, "parent inter-fork fill");
         }
     }
 
-    /* All-pairs divergence analysis */
-    /* 1. Parent blocks pairwise distinct */
     for (int i = 0; i <= NUM_SEQ_FORKS; i++) {
         for (int j = i + 1; j <= NUM_SEQ_FORKS; j++) {
             STRESS_ASSERT(memcmp(parent_blocks[i], parent_blocks[j], 256) != 0,
@@ -418,7 +385,6 @@ static int test_stress_sequential_forks(void) {
         }
     }
 
-    /* 2. Every child initial block != every parent block */
     for (int k = 0; k < NUM_SEQ_FORKS; k++) {
         for (int p = 0; p <= NUM_SEQ_FORKS; p++) {
             STRESS_ASSERT(memcmp(child_initial[k], parent_blocks[p], 256) != 0,
@@ -426,7 +392,6 @@ static int test_stress_sequential_forks(void) {
         }
     }
 
-    /* 3. Every child initial block != every other child initial block */
     for (int i = 0; i < NUM_SEQ_FORKS; i++) {
         for (int j = i + 1; j < NUM_SEQ_FORKS; j++) {
             STRESS_ASSERT(memcmp(child_initial[i], child_initial[j], 256) != 0,
@@ -441,10 +406,6 @@ static int test_stress_sequential_forks(void) {
     return TEST_OK;
 }
 
-/* ========================================================================= */
-/* Test 5: Deeply Nested Grandchild Process Forks (5 generations)            */
-/* ========================================================================= */
-
 static int test_stress_nested_forks(void) {
     printf("[*] Running Test 5: Deeply Nested Grandchild Process Forks (5 generations)...\n");
 
@@ -455,7 +416,7 @@ static int test_stress_nested_forks(void) {
     STRESS_ASSERT(p1 >= 0, "fork p1");
 
     if (p1 == 0) {
-        /* Gen 1 (Child) */
+
         uint8_t gen1_bytes[128];
         if (kheiron_fill(gen1_bytes, sizeof(gen1_bytes)) != 0) exit(1);
         ssize_t w = write(pipe_fd[1], gen1_bytes, sizeof(gen1_bytes)); (void)w;
@@ -463,7 +424,7 @@ static int test_stress_nested_forks(void) {
         pid_t p2 = fork();
         if (p2 < 0) exit(2);
         if (p2 == 0) {
-            /* Gen 2 (Grandchild) */
+
             uint8_t gen2_bytes[128];
             if (kheiron_fill(gen2_bytes, sizeof(gen2_bytes)) != 0) exit(3);
             w = write(pipe_fd[1], gen2_bytes, sizeof(gen2_bytes)); (void)w;
@@ -471,7 +432,7 @@ static int test_stress_nested_forks(void) {
             pid_t p3 = fork();
             if (p3 < 0) exit(4);
             if (p3 == 0) {
-                /* Gen 3 (Great-Grandchild) */
+
                 uint8_t gen3_bytes[128];
                 if (kheiron_fill(gen3_bytes, sizeof(gen3_bytes)) != 0) exit(5);
                 w = write(pipe_fd[1], gen3_bytes, sizeof(gen3_bytes)); (void)w;
@@ -479,7 +440,7 @@ static int test_stress_nested_forks(void) {
                 pid_t p4 = fork();
                 if (p4 < 0) exit(6);
                 if (p4 == 0) {
-                    /* Gen 4 (Great-Great-Grandchild) */
+
                     uint8_t gen4_bytes[128];
                     if (kheiron_fill(gen4_bytes, sizeof(gen4_bytes)) != 0) exit(7);
                     w = write(pipe_fd[1], gen4_bytes, sizeof(gen4_bytes)); (void)w;
@@ -511,7 +472,6 @@ static int test_stress_nested_forks(void) {
     waitpid(p1, &status, 0);
     STRESS_ASSERT(WIFEXITED(status) && WEXITSTATUS(status) == 0, "p1 exited cleanly");
 
-    /* Verify all 5 generations are mutually distinct */
     for (int g = 0; g < 4; g++) {
         STRESS_ASSERT(memcmp(gen0_bytes, gen_bytes[g], 128) != 0, "Gen0 matched child gen!");
     }
@@ -524,10 +484,6 @@ static int test_stress_nested_forks(void) {
     printf("    [PASS] 5 nested generations diverged without state collision or hang.\n");
     return TEST_OK;
 }
-
-/* ========================================================================= */
-/* Test 6: Fork Safety Under Active Multi-Threading in Parent                */
-/* ========================================================================= */
 
 static volatile int g_threads_running = 1;
 
@@ -554,16 +510,13 @@ static int test_stress_fork_multithreaded(void) {
         STRESS_ASSERT_INT_EQ(rc, 0, "pthread_create bg");
     }
 
-    /* Wait briefly for threads to enter loop */
     usleep(5000);
 
-    /* Fork while background threads are active */
     pid_t pid = fork();
     STRESS_ASSERT(pid >= 0, "fork under multithread");
 
     if (pid == 0) {
-        /* In child: only 1 thread survives in POSIX.
-           Child must be able to generate PRNG bytes, init contexts, and spawn new threads. */
+
         uint8_t child_buf[1024];
         if (kheiron_fill(child_buf, sizeof(child_buf)) != 0) exit(1);
 
@@ -572,7 +525,6 @@ static int test_stress_fork_multithreaded(void) {
         if (kheiron_ctx_fill(&ctx, child_buf, 512) != 0) exit(3);
         kheiron_ctx_wipe(&ctx);
 
-        /* Spawn 4 new threads in child to verify child pthread environment is uncorrupted */
         pthread_t child_threads[4];
         for (int c = 0; c < 4; c++) {
             if (pthread_create(&child_threads[c], NULL, worker_churn, NULL) != 0) exit(4);
@@ -585,7 +537,6 @@ static int test_stress_fork_multithreaded(void) {
         exit(0);
     }
 
-    /* In parent: stop background threads */
     g_threads_running = 0;
     for (int i = 0; i < NUM_BG; i++) {
         void *res = NULL;
@@ -601,10 +552,6 @@ static int test_stress_fork_multithreaded(void) {
     printf("    [PASS] Fork during active thread execution succeeded; child re-initialized safely.\n");
     return TEST_OK;
 }
-
-/* ========================================================================= */
-/* Main Runner                                                               */
-/* ========================================================================= */
 
 int main(void) {
     printf("================================================================================\n");

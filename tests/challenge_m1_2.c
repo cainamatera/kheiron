@@ -34,10 +34,6 @@ static int g_failed = 0;
 #define TEST_PASS(name) \
     printf(COLOR_GREEN "[+] %s: PASSED" COLOR_RESET "\n", name)
 
-/* ========================================================================= */
-/* 1. CONCURRENCY STRESS TEST                                                */
-/* ========================================================================= */
-
 #define MAX_THREADS 64
 #define OPS_PER_THREAD 10000
 
@@ -53,13 +49,11 @@ static void *concurrency_worker(void *arg) {
     thread_test_data_t *data = (thread_test_data_t *)arg;
     data->status = 0;
 
-    /* 1. Initialize PRNG on this thread */
     if (kheiron_init() != 0) {
         data->status = -1;
         return NULL;
     }
 
-    /* 2. Record initial output for cross-thread uniqueness verification */
     if (kheiron_fill(data->first_64b, sizeof(data->first_64b)) != 0) {
         data->status = -2;
         return NULL;
@@ -68,7 +62,6 @@ static void *concurrency_worker(void *arg) {
         data->first_u64[i] = kheiron_u64();
     }
 
-    /* 3. Intensive PRNG workload intermixing fill, u64, range_u64, uniform */
     uint8_t buf[4096];
     for (int i = 0; i < OPS_PER_THREAD; i++) {
         int op = i % 4;
@@ -85,7 +78,7 @@ static void *concurrency_worker(void *arg) {
             case 1: {
                 uint64_t val = kheiron_u64();
                 if (val == 0 && kheiron_u64() == 0 && kheiron_u64() == 0) {
-                    /* Highly unlikely to get 3 consecutive zeros unless uninitialized */
+
                     data->status = -4;
                     return NULL;
                 }
@@ -139,7 +132,6 @@ static int test_concurrency_threads(int num_threads) {
         }
     }
 
-    /* Verify Cross-Thread Stream Independence: no two threads produced identical initial blocks */
     for (int i = 0; i < num_threads; i++) {
         for (int j = i + 1; j < num_threads; j++) {
             if (memcmp(thread_data[i].first_64b, thread_data[j].first_64b, 64) == 0) {
@@ -167,21 +159,15 @@ static int run_concurrency_tests(void) {
     return 0;
 }
 
-/* ========================================================================= */
-/* 2. FORK RESILIENCE STRESS TEST                                            */
-/* ========================================================================= */
-
 #define NUM_FORK_CHILDREN 16
 #define FORK_STREAM_LEN 1024
 
 static int run_fork_resilience_tests(void) {
     printf("\n=== Challenge 2: Fork Resilience Stress Testing ===\n");
 
-    /* Part 2A: 16 Concurrent Child Processes */
     printf(COLOR_CYAN "[*] Part 2A: Forking %d concurrent children immediately calling kheiron_fill()..." COLOR_RESET "\n",
            NUM_FORK_CHILDREN);
 
-    /* Initialize and generate in parent before fork */
     TEST_ASSERT(kheiron_init() == 0, "Parent kheiron_init failed");
     uint8_t parent_pre[FORK_STREAM_LEN];
     TEST_ASSERT(kheiron_fill(parent_pre, sizeof(parent_pre)) == 0, "Parent fill pre-fork failed");
@@ -203,7 +189,7 @@ static int run_fork_resilience_tests(void) {
             return -1;
         }
         if (pids[i] == 0) {
-            /* Child process */
+
             close(pipes[i][0]);
 
             uint8_t child_stream[FORK_STREAM_LEN];
@@ -212,13 +198,11 @@ static int run_fork_resilience_tests(void) {
                 _exit(1);
             }
 
-            /* Do some additional range and u64 operations */
             uint64_t val = kheiron_u64();
             uint64_t rng = kheiron_range_u64(0, 100);
             (void)val;
             (void)rng;
 
-            /* Write back stream */
             ssize_t written = write(pipes[i][1], child_stream, sizeof(child_stream));
             close(pipes[i][1]);
             if (written != sizeof(child_stream)) {
@@ -226,16 +210,14 @@ static int run_fork_resilience_tests(void) {
             }
             _exit(0);
         } else {
-            /* Parent process */
+
             close(pipes[i][1]);
         }
     }
 
-    /* In parent: generate post-fork stream */
     uint8_t parent_post[FORK_STREAM_LEN];
     TEST_ASSERT(kheiron_fill(parent_post, sizeof(parent_post)) == 0, "Parent fill post-fork failed");
 
-    /* Collect all child streams */
     uint8_t child_streams[NUM_FORK_CHILDREN][FORK_STREAM_LEN];
     for (int i = 0; i < NUM_FORK_CHILDREN; i++) {
         ssize_t total_read = 0;
@@ -253,18 +235,15 @@ static int run_fork_resilience_tests(void) {
                     "Child %d exited abnormally (exit code %d)", i, WEXITSTATUS(status));
     }
 
-    /* Verification 1: Check that parent_pre != parent_post */
     TEST_ASSERT(memcmp(parent_pre, parent_post, FORK_STREAM_LEN) != 0,
                 "Parent pre-fork and post-fork streams matched!");
 
-    /* Verification 2: Check that no child repeats parent_pre or parent_post */
     for (int i = 0; i < NUM_FORK_CHILDREN; i++) {
         TEST_ASSERT(memcmp(child_streams[i], parent_pre, FORK_STREAM_LEN) != 0,
                     "Child %d repeated parent pre-fork stream!", i);
         TEST_ASSERT(memcmp(child_streams[i], parent_post, FORK_STREAM_LEN) != 0,
                     "Child %d repeated parent post-fork stream!", i);
 
-        /* Check that child stream is not all zeros */
         bool all_zeros = true;
         for (size_t b = 0; b < FORK_STREAM_LEN; b++) {
             if (child_streams[i][b] != 0) {
@@ -275,12 +254,11 @@ static int run_fork_resilience_tests(void) {
         TEST_ASSERT(!all_zeros, "Child %d produced all zero bytes!", i);
     }
 
-    /* Verification 3: Check pairwise independence across all children */
     for (int i = 0; i < NUM_FORK_CHILDREN; i++) {
         for (int j = i + 1; j < NUM_FORK_CHILDREN; j++) {
             TEST_ASSERT(memcmp(child_streams[i], child_streams[j], FORK_STREAM_LEN) != 0,
                         "COLLISION: Child %d and Child %d produced identical streams!", i, j);
-            /* Also check first 32 bytes */
+
             TEST_ASSERT(memcmp(child_streams[i], child_streams[j], 32) != 0,
                         "COLLISION: Child %d and Child %d share identical 32-byte prefix!", i, j);
         }
@@ -289,14 +267,13 @@ static int run_fork_resilience_tests(void) {
     printf(COLOR_GREEN "    -> Part 2A: All %d children produced independent streams, zero parent repeats." COLOR_RESET "\n",
            NUM_FORK_CHILDREN);
 
-    /* Part 2B: Cascading / Nested Fork (Grandchild) */
     printf(COLOR_CYAN "[*] Part 2B: Cascading fork (Parent -> Child -> Grandchild)..." COLOR_RESET "\n");
     int cascade_pipe[2];
     TEST_ASSERT(pipe(cascade_pipe) == 0, "cascade pipe failed");
 
     pid_t c_pid = fork();
     if (c_pid == 0) {
-        /* Child */
+
         close(cascade_pipe[0]);
         uint8_t c_buf[64];
         kheiron_fill(c_buf, 64);
@@ -306,7 +283,7 @@ static int run_fork_resilience_tests(void) {
 
         pid_t gc_pid = fork();
         if (gc_pid == 0) {
-            /* Grandchild */
+
             close(cascade_pipe[1]);
             close(grandchild_pipe[0]);
             uint8_t gc_buf[64];
@@ -324,7 +301,7 @@ static int run_fork_resilience_tests(void) {
             if (r != 64 || memcmp(c_buf, gc_buf, 64) == 0) {
                 _exit(3);
             }
-            /* Write child buf and grandchild buf to parent */
+
             write(cascade_pipe[1], c_buf, 64);
             write(cascade_pipe[1], gc_buf, 64);
             close(cascade_pipe[1]);
@@ -350,7 +327,6 @@ static int run_fork_resilience_tests(void) {
 
     printf(COLOR_GREEN "    -> Part 2B: Cascading fork independence verified." COLOR_RESET "\n");
 
-    /* Part 2C: Rapid Sequential Forks (25 iterations) */
     printf(COLOR_CYAN "[*] Part 2C: Rapid sequential fork loop (25 iterations)..." COLOR_RESET "\n");
     for (int iter = 0; iter < 25; iter++) {
         int spipe[2];
@@ -374,7 +350,6 @@ static int run_fork_resilience_tests(void) {
     }
     printf(COLOR_GREEN "    -> Part 2C: 25 rapid forks completed cleanly." COLOR_RESET "\n");
 
-    /* Part 2D: Contextual Generator (kheiron_ctx_t) Fork Resilience */
     printf(COLOR_CYAN "[*] Part 2D: Contextual generator (kheiron_ctx_t) on stack across fork()..." COLOR_RESET "\n");
     int ctx_pipe[2];
     TEST_ASSERT(pipe(ctx_pipe) == 0, "ctx pipe failed");
@@ -385,7 +360,7 @@ static int run_fork_resilience_tests(void) {
 
     pid_t ctx_pid = fork();
     if (ctx_pid == 0) {
-        /* Child */
+
         close(ctx_pipe[0]);
         uint8_t out[32];
         int rc = kheiron_ctx_fill(&stack_ctx, out, sizeof(out));
@@ -420,14 +395,9 @@ static int run_fork_resilience_tests(void) {
     return 0;
 }
 
-/* ========================================================================= */
-/* 3. RAPID KEY ROTATION STRESS TEST                                         */
-/* ========================================================================= */
-
-#define ROTATION_THRESHOLD (1024 * 1024) /* 1 MB */
+#define ROTATION_THRESHOLD (1024 * 1024)
 #define TOTAL_ROTATIONS 55
 
-/* NIST SP 800-22 Monobit Frequency Test */
 static double compute_monobit_p_value(const uint8_t *buf, size_t len) {
     long s = 0;
     size_t n = len * 8;
@@ -451,42 +421,36 @@ static int run_rapid_key_rotation_tests(void) {
     printf(COLOR_CYAN "[*] Triggering %d consecutive 1 MB key rotations (~58 MB continuous fill)..." COLOR_RESET "\n",
            TOTAL_ROTATIONS);
 
-    /* Allocate 1MB + 128KB scratch buffer */
     size_t chunk_buf_size = ROTATION_THRESHOLD + 131072;
     uint8_t *buf = (uint8_t *)malloc(chunk_buf_size);
     TEST_ASSERT(buf != NULL, "malloc failed");
 
-    /* Phase 1: Exact 1 MB blocks (15 rotations) */
     printf("    Phase 1: 15 exact 1 MB boundaries...\n");
     for (int r = 0; r < 15; r++) {
         TEST_ASSERT(kheiron_fill(buf, ROTATION_THRESHOLD) == 0,
                     "kheiron_fill failed in Phase 1 rotation %d", r);
     }
 
-    /* Phase 2: Overshooting boundary by 7 bytes (15 rotations) */
     printf("    Phase 2: 15 boundary overshoot (1 MB + 7 bytes)...\n");
     for (int r = 0; r < 15; r++) {
         TEST_ASSERT(kheiron_fill(buf, ROTATION_THRESHOLD + 7) == 0,
                     "kheiron_fill failed in Phase 2 rotation %d", r);
     }
 
-    /* Phase 3: Undershooting boundary (15 rotations via 512KB chunks) */
     printf("    Phase 3: 15 rotations via 30x 512 KB chunks...\n");
     for (int r = 0; r < 30; r++) {
         TEST_ASSERT(kheiron_fill(buf, ROTATION_THRESHOLD / 2) == 0,
                     "kheiron_fill failed in Phase 3 iteration %d", r);
     }
 
-    /* Phase 4: Irregular prime sizes crossing boundary (10 rotations) */
     printf("    Phase 4: 10 rotations via prime chunks (1 MB + 521 bytes)...\n");
     for (int r = 0; r < 10; r++) {
         TEST_ASSERT(kheiron_fill(buf, ROTATION_THRESHOLD + 521) == 0,
                     "kheiron_fill failed in Phase 4 iteration %d", r);
     }
 
-    /* Verify PRNG quality post-rotations: NIST Monobit Test on 1,000,000 bits (125,000 bytes) */
     printf(COLOR_CYAN "[*] Verifying state stability & randomness post-rotation via NIST Monobit Test..." COLOR_RESET "\n");
-    size_t test_len = 125000; /* 1,000,000 bits */
+    size_t test_len = 125000;
     uint8_t *test_buf = (uint8_t *)malloc(test_len);
     TEST_ASSERT(test_buf != NULL, "malloc test_buf failed");
     TEST_ASSERT(kheiron_fill(test_buf, test_len) == 0, "Post-rotation fill failed");
@@ -495,7 +459,6 @@ static int run_rapid_key_rotation_tests(void) {
     printf("    Post-rotation NIST Monobit p-value: %f (threshold: 0.01)\n", p_val);
     TEST_ASSERT(p_val >= 0.01, "NIST Monobit test failed post-rotation (p-val = %f)", p_val);
 
-    /* Test Contextual Generator (kheiron_ctx_t) Rapid Rotation */
     printf(COLOR_CYAN "[*] Testing kheiron_ctx_fill with 20 consecutive 1 MB rotations..." COLOR_RESET "\n");
     kheiron_ctx_t ctx;
     uint8_t seed[32] = { 0x42 };
@@ -511,10 +474,6 @@ static int run_rapid_key_rotation_tests(void) {
     TEST_PASS("Rapid Key Rotation Suite (55+ rotations, continuous entropy injection, NIST Monobit verification)");
     return 0;
 }
-
-/* ========================================================================= */
-/* 4. LEMIRE SAMPLING EMPIRICAL DISTRIBUTION                                 */
-/* ========================================================================= */
 
 #define LEMIRE_SAMPLES 1000000
 #define NUM_BUCKETS 100
@@ -541,7 +500,7 @@ static int run_lemire_sampling_distribution_tests(void) {
         sum_sq += (double)val * (double)val;
     }
 
-    double expected_count = (double)LEMIRE_SAMPLES / (double)NUM_BUCKETS; /* 10,000 */
+    double expected_count = (double)LEMIRE_SAMPLES / (double)NUM_BUCKETS;
     double chi_square = 0.0;
     uint64_t min_count = counts[0];
     uint64_t max_count = counts[0];
@@ -556,21 +515,12 @@ static int run_lemire_sampling_distribution_tests(void) {
     double mean = sum / (double)LEMIRE_SAMPLES;
     double variance = (sum_sq / (double)LEMIRE_SAMPLES) - (mean * mean);
 
-    /* Theoretical values:
-     * Discrete uniform [0, 99]:
-     * Mean = (0 + 99) / 2 = 49.50
-     * Variance = (100^2 - 1) / 12 = 9999 / 12 = 833.25
-     * Chi-Square with df = 99:
-     * Critical threshold at alpha = 0.01 is 134.64.
-     * Critical threshold at alpha = 0.001 is 148.23.
-     */
     printf("    Empirical Mean:     %.4f (Theoretical: 49.5000)\n", mean);
     printf("    Empirical Variance: %.4f (Theoretical: 833.2500)\n", variance);
     printf("    Min Bucket Count:   %lu (Expected: 10000)\n", (unsigned long)min_count);
     printf("    Max Bucket Count:   %lu (Expected: 10000)\n", (unsigned long)max_count);
     printf("    Chi-Square Stat:    %.4f (df = 99, Critical alpha=0.01: 134.64, alpha=0.001: 148.23)\n", chi_square);
 
-    /* Two-stage hypothesis test if Chi-Square is slightly high (NIST SP 800-22) */
     if (chi_square >= 134.64) {
         printf(COLOR_YELLOW "    [!] Stage 1 Chi-Square (%.4f) > 134.64; running Stage 2 confirmatory trial..." COLOR_RESET "\n",
                chi_square);
@@ -590,23 +540,20 @@ static int run_lemire_sampling_distribution_tests(void) {
     TEST_ASSERT(chi_square < 140.0, "Lemire Chi-Square uniformity test failed (stat = %.4f)", chi_square);
     TEST_ASSERT(fabs(mean - 49.50) < 0.15, "Lemire empirical mean deviated excessively (mean = %.4f)", mean);
 
-    /* Edge Case Ranges */
     printf(COLOR_CYAN "[*] Testing boundary & corner cases for kheiron_range_u64()..." COLOR_RESET "\n");
-    /* Degenerate range [x, x] */
+
     for (int i = 0; i < 1000; i++) {
         uint64_t v = kheiron_range_u64(42, 42);
         TEST_ASSERT(v == 42, "Degenerate range failed: expected 42, got %lu", (unsigned long)v);
     }
-    /* Inverted range [max, min] */
+
     TEST_ASSERT(kheiron_range_u64(100, 10) == 100, "Inverted range check failed");
 
-    /* Offset range [1000, 1099] */
     for (int i = 0; i < 10000; i++) {
         uint64_t v = kheiron_range_u64(1000, 1099);
         TEST_ASSERT(v >= 1000 && v <= 1099, "Offset range out of bounds: %lu", (unsigned long)v);
     }
 
-    /* Power-of-two range [0, 63] */
     for (int i = 0; i < 10000; i++) {
         uint64_t v = kheiron_range_u64(0, 63);
         TEST_ASSERT(v <= 63, "Power-of-two range out of bounds: %lu", (unsigned long)v);
@@ -615,10 +562,6 @@ static int run_lemire_sampling_distribution_tests(void) {
     TEST_PASS("Lemire Sampling Empirical Distribution (1,000,000 samples, Chi-Square uniformity verified)");
     return 0;
 }
-
-/* ========================================================================= */
-/* MAIN RUNNER                                                               */
-/* ========================================================================= */
 
 int main(int argc, char *argv[]) {
     printf("===================================================================\n");

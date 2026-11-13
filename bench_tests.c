@@ -604,7 +604,6 @@ int main(int argc, char *argv[]) {
     kheiron_ctx_wipe(&root_ctx);
     kheiron_ctx_wipe(&root_backup);
 
-    /* Test: kheiron_init, kheiron_u64, kheiron_u32 Contract APIs */
     int init_ok = (kheiron_init() == 0);
     uint64_t u64_val = kheiron_u64();
     uint32_t u32_val = kheiron_u32();
@@ -614,7 +613,6 @@ int main(int argc, char *argv[]) {
         failed = 1;
     }
 
-    /* Test: Defensive NULL and Zero-Length Argument Handling */
     uint8_t def_buf[64];
     kheiron_ctx_t def_ctx;
     kheiron_ctx_init(&def_ctx, root_seed, sizeof(root_seed));
@@ -633,7 +631,6 @@ int main(int argc, char *argv[]) {
         failed = 1;
     }
 
-    /* Test: Unaligned Buffer Handling across byte offsets 0..31 */
     int unaligned_ok = 1;
     uint8_t unaligned_raw[2048 + 64];
     for (int offset = 0; offset < 32; offset++) {
@@ -660,7 +657,6 @@ int main(int argc, char *argv[]) {
         failed = 1;
     }
 
-    /* Test: Exact Tail & Sub-512 Byte Boundary Handling */
     int tail_ok = 1;
     const size_t tail_sizes[] = {1, 2, 7, 15, 16, 31, 32, 63, 64, 65, 127, 128, 255, 256, 511, 512, 513, 1023, 1024, 1025};
     size_t num_tail_sizes = sizeof(tail_sizes) / sizeof(tail_sizes[0]);
@@ -677,7 +673,7 @@ int main(int argc, char *argv[]) {
             free(tbuf);
             break;
         }
-        /* Verify canary bytes past tlen were not touched */
+
         for (size_t c = 0; c < 16; c++) {
             if (tbuf[tlen + c] != 0xEE) {
                 tail_ok = 0;
@@ -694,7 +690,6 @@ int main(int argc, char *argv[]) {
         failed = 1;
     }
 
-    /* Test: Bit-for-Bit 8-Block Vector vs Scalar Reference Equivalence */
     int equiv_ok = 1;
     uint32_t test_state_scalar[16];
     for (int i = 0; i < 16; i++) {
@@ -726,7 +721,6 @@ int main(int argc, char *argv[]) {
             equiv_ok = 0;
         }
 
-        /* Test counter wrap across 2^32 boundary */
         test_state_scalar[12] = 0xFFFFFFFCU;
         test_state_scalar[13] = 0x00000001U;
         test_state_vector[12] = 0xFFFFFFFCU;

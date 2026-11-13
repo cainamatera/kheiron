@@ -5,7 +5,6 @@
 #include <assert.h>
 #include "../kheiron.h"
 
-/* Reference pure scalar context fill implementing the exact scalar logic of Kheiron */
 static int reference_scalar_ctx_fill(kheiron_ctx_t *ctx, void *buf, size_t len) {
     if (!ctx || !buf) {
         return -1;
@@ -18,7 +17,7 @@ static int reference_scalar_ctx_fill(kheiron_ctx_t *ctx, void *buf, size_t len) 
     size_t remaining = len;
 
     while (remaining > 0) {
-        /* In test harness, we test stream equivalence within an epoch or without non-deterministic rdtsc */
+
         size_t chunk_limit = remaining;
 
         if (chunk_limit >= 64) {
@@ -54,7 +53,6 @@ static int reference_scalar_ctx_fill(kheiron_ctx_t *ctx, void *buf, size_t len) 
     return 0;
 }
 
-/* Reference pure scalar multi-block generator */
 static void reference_scalar_blocks(uint32_t state[16], uint8_t *out, size_t num_blocks) {
     for (size_t b = 0; b < num_blocks; b++) {
         kheiron_chacha_block(state, out + b * 64);
@@ -85,12 +83,9 @@ int main(void) {
         return 0;
     }
 
-    /* --------------------------------------------------------------------- */
-    /* Test 1: RFC 7539 Test Vector Verification                             */
-    /* --------------------------------------------------------------------- */
     printf("[1/5] Verifying RFC 7539 official test vector in AVX2...\n");
     {
-        /* RFC 7539 Section 2.3.2 Test Vector State */
+
         const uint32_t rfc_key[8] = {
             0x03020100, 0x07060504, 0x0b0a0908, 0x0f0e0d0c,
             0x13121110, 0x17161514, 0x1b1a1918, 0x1f1e1d1c
@@ -102,11 +97,10 @@ int main(void) {
             0x61707865, 0x3320646e, 0x79622d32, 0x6b206574,
             rfc_key[0], rfc_key[1], rfc_key[2], rfc_key[3],
             rfc_key[4], rfc_key[5], rfc_key[6], rfc_key[7],
-            0x00000001, /* block counter = 1 */
+            0x00000001,
             rfc_nonce[0], rfc_nonce[1], rfc_nonce[2]
         };
 
-        /* Expected first 64 bytes of RFC 7539 Block 1 */
         const uint8_t rfc_expected[64] = {
             0x10, 0xf1, 0xe7, 0xe4, 0xd1, 0x3b, 0x59, 0x15,
             0x50, 0x0f, 0xdd, 0x1f, 0xa3, 0x20, 0x71, 0xc4,
@@ -136,9 +130,6 @@ int main(void) {
         printf("      -> RFC 7539 test vector bit-exact match in AVX2.\n");
     }
 
-    /* --------------------------------------------------------------------- */
-    /* Test 2: Differential Oracle on 10,000 Randomized States              */
-    /* --------------------------------------------------------------------- */
     printf("[2/5] Testing 10,000 randomized states (8 blocks / 512B each)...\n");
     {
         uint32_t rng = 0xDEADBEEF;
@@ -181,9 +172,6 @@ int main(void) {
         printf("      -> 10,000 random states verified bit-for-bit identical.\n");
     }
 
-    /* --------------------------------------------------------------------- */
-    /* Test 3: Counter Wraparound Differential Oracle                        */
-    /* --------------------------------------------------------------------- */
     printf("[3/5] Testing counter wrap across 2^32-1 boundary...\n");
     {
         uint32_t wrap_offsets[] = {
@@ -207,7 +195,6 @@ int main(void) {
             uint8_t out_avx[512 * 4];
             uint8_t out_scalar[512 * 4];
 
-            /* Run 32 blocks (4 iterations of AVX2) across the wrap */
             kheiron_chacha20_blocks_avx2(s_avx, out_avx, 32);
             reference_scalar_blocks(s_scalar, out_scalar, 32);
 
@@ -224,12 +211,9 @@ int main(void) {
         printf("      -> All counter wraparound scenarios bit-for-bit identical.\n");
     }
 
-    /* --------------------------------------------------------------------- */
-    /* Test 4: Streaming Differential Oracle across Arbitrary Chunk Sizes    */
-    /* --------------------------------------------------------------------- */
     printf("[4/5] Testing streaming differential equivalence across arbitrary chunk sizes...\n");
     {
-        /* First: exhaustive 1 to 2048 bytes */
+
         for (size_t sz = 1; sz <= 2048; sz++) {
             kheiron_ctx_t ctx_avx, ctx_scalar;
             ctx_avx.state[0] = 0x61707865; ctx_avx.state[1] = 0x3320646e;
@@ -270,7 +254,6 @@ int main(void) {
         }
         printf("      -> Exhaustive single-chunk sizes 1..2048 bytes PASSED.\n");
 
-        /* Second: Sequential multi-call random fuzzed chunk stream */
         kheiron_ctx_t ctx_avx, ctx_scalar;
         ctx_avx.state[0] = 0x61707865; ctx_avx.state[1] = 0x3320646e;
         ctx_avx.state[2] = 0x79622d32; ctx_avx.state[3] = 0x6b206574;
@@ -281,11 +264,11 @@ int main(void) {
         uint32_t rng = 0xCAFEBABE;
         size_t total_streamed = 0;
         for (int req = 0; req < 2000; req++) {
-            /* Random request size up to 4096 bytes */
+
             size_t req_sz = 1 + (xorshift32(&rng) % 4096);
-            /* Keep within 1MB epoch so we don't trigger non-deterministic rdtsc */
+
             if (ctx_avx.bytes_generated + req_sz >= 1048000) {
-                /* Reset epoch state identically to simulate key rotation */
+
                 ctx_avx.bytes_generated = 0;
                 ctx_scalar.bytes_generated = 0;
                 ctx_avx.state[12] ^= 0x12345;
@@ -321,14 +304,11 @@ int main(void) {
                total_streamed);
     }
 
-    /* --------------------------------------------------------------------- */
-    /* Test 5: Multi-Megabyte High-Throughput Stream Equivalence            */
-    /* --------------------------------------------------------------------- */
     printf("[5/5] Testing 10 MB contiguous stream equivalence...\n");
     {
-        /* We generate 10 MB in 512-byte blocks directly via AVX2 vs scalar */
-        size_t n_blocks = 163840; /* 10 MB = 163,840 blocks */
-        size_t chunk_blocks = 800; /* 50 KB chunks */
+
+        size_t n_blocks = 163840;
+        size_t chunk_blocks = 800;
         size_t chunk_bytes = chunk_blocks * 64;
 
         uint32_t s_avx[16], s_scalar[16];

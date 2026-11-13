@@ -52,10 +52,6 @@ static int g_test_failures = 0;
     return true; \
 } while (0)
 
-/* ========================================================================= */
-/* Pure Scalar Reference Engine for Differential Verification                */
-/* ========================================================================= */
-
 #if KHEIRON_HAVE_AVX2
 static void ref_scalar_ctx_fill(kheiron_ctx_t *ctx, void *buf, size_t len) {
     uint8_t *p = (uint8_t *)buf;
@@ -101,10 +97,6 @@ static void ref_scalar_ctx_fill(kheiron_ctx_t *ctx, void *buf, size_t len) {
 }
 #endif
 
-/* ========================================================================= */
-/* 1. AVX2 vs SCALAR KEYSTREAM EQUIVALENCE                                   */
-/* ========================================================================= */
-
 #if KHEIRON_HAVE_AVX2
 static bool test_avx2_vs_scalar_direct_8blocks(void) {
     printf("[1.1] Testing AVX2 8-block kernel vs 8 scalar blocks across 1000 randomized states...\n");
@@ -115,10 +107,8 @@ static bool test_avx2_vs_scalar_direct_8blocks(void) {
         uint32_t base_state[16];
         kheiron_fill(base_state, sizeof(base_state));
 
-        /* Run 8-block AVX2 */
         kheiron_chacha20_8blocks_avx2(base_state, avx_out);
 
-        /* Run 8 scalar blocks */
         uint32_t sc_state[16];
         memcpy(sc_state, base_state, sizeof(sc_state));
         for (int b = 0; b < 8; b++) {
@@ -140,12 +130,11 @@ static bool test_avx2_vs_scalar_counter_overflow(void) {
     uint8_t avx_out[512];
     uint8_t sc_out[512];
 
-    /* Test counter values spanning 0xFFFFFFF0 to 0xFFFFFFFF and 64-bit carry */
     for (int offset = -16; offset <= 8; offset++) {
         uint32_t base_state[16];
         kheiron_fill(base_state, sizeof(base_state));
         base_state[12] = (uint32_t)(0xFFFFFFF8U + offset);
-        base_state[13] = 0x00000001; /* High counter */
+        base_state[13] = 0x00000001;
 
         kheiron_chacha20_8blocks_avx2(base_state, avx_out);
 
@@ -174,7 +163,7 @@ static bool test_avx2_vs_scalar_arbitrary_buffer_sizes(void) {
         255, 256, 257, 511, 512, 513, 1023, 1024, 1025, 2047, 2048, 2049,
         4095, 4096, 4097, 32767, 32768, 65535, 65536, 65537,
         500000, 1000000,
-        /* Key rotation threshold boundaries: 1 MB = 1,048,576 bytes */
+
         1048576 - 513, 1048576 - 512, 1048576 - 65, 1048576 - 64,
         1048576 - 1, 1048576
     };
@@ -186,16 +175,14 @@ static bool test_avx2_vs_scalar_arbitrary_buffer_sizes(void) {
         uint8_t *buf_sc  = (uint8_t *)malloc(len);
         ADV_CHECK(buf_avx != NULL && buf_sc != NULL, "Out of memory allocating test buffers");
 
-        /* Initialize identical contexts */
         kheiron_ctx_t ctx_avx, ctx_sc;
         uint8_t seed[32];
         memset(seed, (int)(s_idx + 0x11), sizeof(seed));
         kheiron_ctx_init(&ctx_avx, seed, sizeof(seed));
         memcpy(&ctx_sc, &ctx_avx, sizeof(ctx_sc));
 
-        /* Fill AVX2 (uses kheiron_ctx_fill with AVX2 dynamic path) */
         int r_avx = kheiron_ctx_fill(&ctx_avx, buf_avx, len);
-        /* Fill Scalar (uses ref_scalar_ctx_fill) */
+
         ref_scalar_ctx_fill(&ctx_sc, buf_sc, len);
 
         ADV_CHECK(r_avx == 0, "kheiron_ctx_fill failed");
@@ -227,7 +214,6 @@ static bool test_avx2_vs_scalar_sequential_fills(void) {
     kheiron_ctx_init(&ctx_avx, seed, sizeof(seed));
     memcpy(&ctx_sc, &ctx_avx, sizeof(ctx_sc));
 
-    /* Chunk sizes varying from 7 to 1531 bytes */
     const size_t chunk_lens[] = {7, 63, 64, 65, 127, 256, 511, 512, 513, 1024, 1531};
     const size_t num_chunks = sizeof(chunk_lens) / sizeof(chunk_lens[0]);
 
@@ -252,27 +238,22 @@ static bool test_avx2_vs_scalar_sequential_fills(void) {
 static bool test_avx2_vs_scalar_post_rotation_epoch(void) {
     printf("[1.5] Testing AVX2 vs scalar post-rotation epoch keystream equivalence...\n");
 
-    /* Initialize context, fill full 1 MB to trigger rotation, then test equivalence on new key */
     kheiron_ctx_t ctx_avx, ctx_sc;
     uint8_t seed[32] = {0xAA, 0xBB, 0xCC, 0xDD};
     kheiron_ctx_init(&ctx_avx, seed, sizeof(seed));
 
-    /* Consume exactly 1,048,576 bytes */
     uint8_t dummy[512];
     for (size_t i = 0; i < 2048; i++) {
         kheiron_ctx_fill(&ctx_avx, dummy, sizeof(dummy));
     }
     ADV_CHECK(ctx_avx.bytes_generated == 1048576, "Epoch bytes_generated should be 1048576");
 
-    /* Now next fill triggers rotation */
     uint8_t rot_test[64];
     kheiron_ctx_fill(&ctx_avx, rot_test, sizeof(rot_test));
     ADV_CHECK(ctx_avx.bytes_generated == 64, "After rotation, bytes_generated should be 64");
 
-    /* Now clone rotated state to ctx_sc */
     memcpy(&ctx_sc, &ctx_avx, sizeof(ctx_sc));
 
-    /* Now test another 1,000,000 bytes generation */
     size_t test_sz = 1000000;
     uint8_t *b_avx = (uint8_t *)malloc(test_sz);
     uint8_t *b_sc  = (uint8_t *)malloc(test_sz);
@@ -291,19 +272,13 @@ static bool test_avx2_vs_scalar_post_rotation_epoch(void) {
 }
 #endif
 
-/* ========================================================================= */
-/* 2. LEMIRE MODULO BIAS-FREE RANGE SAMPLING                                  */
-/* ========================================================================= */
-
 static bool test_lemire_extreme_ranges(void) {
     printf("[2.1] Testing Lemire range sampling under extreme adversarial ranges...\n");
 
-    /* Degenerate cases */
     ADV_CHECK(kheiron_range_u64(0, 0) == 0, "[0, 0] must return 0");
     ADV_CHECK(kheiron_range_u64(UINT64_MAX, UINT64_MAX) == UINT64_MAX, "[MAX, MAX] must return MAX");
     ADV_CHECK(kheiron_range_u64(100, 50) == 100, "Inverted range [100, 50] must safely return min (100)");
 
-    /* Range [UINT64_MAX - 1, UINT64_MAX] -> size 2 */
     const int SAMPLES_2 = 100000;
     int count_max_minus_1 = 0;
     int count_max = 0;
@@ -313,13 +288,12 @@ static bool test_lemire_extreme_ranges(void) {
         if (val == UINT64_MAX - 1) count_max_minus_1++;
         else count_max++;
     }
-    /* Chi-square test on 2 bins with df=1 (critical value for p=0.001 is 10.83) */
+
     double expected_2 = SAMPLES_2 / 2.0;
     double chi2_2 = ((count_max_minus_1 - expected_2) * (count_max_minus_1 - expected_2) / expected_2) +
                     ((count_max - expected_2) * (count_max - expected_2) / expected_2);
     ADV_CHECK_FMT(chi2_2 < 15.0, "Chi-square %.2f exceeds critical threshold for [MAX-1, MAX]", (float)chi2_2);
 
-    /* Range [0, UINT64_MAX] -> full 64-bit sampling */
     const int SAMPLES_FULL = 100000;
     uint64_t bit_counts[64] = {0};
     uint64_t min_obs = UINT64_MAX, max_obs = 0;
@@ -336,7 +310,6 @@ static bool test_lemire_extreme_ranges(void) {
     ADV_CHECK(min_obs < 0x0100000000000000ULL, "Minimum observed value suspiciously large");
     ADV_CHECK(max_obs > 0xFE00000000000000ULL, "Maximum observed value suspiciously small");
 
-    /* Check bit balance across all 64 bits */
     double exp_bits = SAMPLES_FULL * 0.5;
     double stddev_bits = sqrt(SAMPLES_FULL * 0.25);
     for (int b = 0; b < 64; b++) {
@@ -350,7 +323,6 @@ static bool test_lemire_extreme_ranges(void) {
 static bool test_lemire_chi_square_prime_ranges(void) {
     printf("[2.2] Testing Lemire modulo bias across prime & power-of-two ranges (Chi-Square)...\n");
 
-    /* Test 1: Range [0, 2] (3 bins, prime, tests Lemire rejection threshold t = (-3) % 3 = 1) */
     {
         const int N = 300000;
         const int K = 3;
@@ -366,11 +338,10 @@ static bool test_lemire_chi_square_prime_ranges(void) {
             double d = counts[k] - exp_k;
             chi2 += (d * d) / exp_k;
         }
-        /* df = 2, critical chi2 at p=0.001 is 13.82 */
+
         ADV_CHECK_FMT(chi2 < 13.82, "Range [0, 2] chi-square failed: %.2f >= 13.82", (float)chi2);
     }
 
-    /* Test 2: Range [0, 6] (7 bins, prime) */
     {
         const int N = 700000;
         const int K = 7;
@@ -386,11 +357,10 @@ static bool test_lemire_chi_square_prime_ranges(void) {
             double d = counts[k] - exp_k;
             chi2 += (d * d) / exp_k;
         }
-        /* df = 6, critical chi2 at p=0.001 is 22.46 */
+
         ADV_CHECK_FMT(chi2 < 22.46, "Range [0, 6] chi-square failed: %.2f >= 22.46", (float)chi2);
     }
 
-    /* Test 3: Range [0, 16] (17 bins, prime) */
     {
         const int N = 340000;
         const int K = 17;
@@ -406,21 +376,17 @@ static bool test_lemire_chi_square_prime_ranges(void) {
             double d = counts[k] - exp_k;
             chi2 += (d * d) / exp_k;
         }
-        /* df = 16, critical chi2 at p=0.001 is 39.25 */
+
         ADV_CHECK_FMT(chi2 < 39.25, "Range [0, 16] chi-square failed: %.2f >= 39.25", (float)chi2);
     }
 
     ADV_PASS("Lemire bias-free sampling passed all Chi-Square goodness-of-fit tests");
 }
 
-/* ========================================================================= */
-/* 3. FLOATING-POINT SAMPLING PRECISION                                      */
-/* ========================================================================= */
-
 static bool test_floating_point_bounds_and_mantissa(void) {
     printf("[3.1] Testing 10^7 samples of kheiron_uniform_double() for [0.0, 1.0) strictly & mantissa bits...\n");
 
-    const uint64_t N = 10000000ULL; /* 10,000,000 samples */
+    const uint64_t N = 10000000ULL;
     double min_val = 1.0;
     double max_val = 0.0;
     uint64_t bit_counts[53] = {0};
@@ -428,7 +394,6 @@ static bool test_floating_point_bounds_and_mantissa(void) {
     for (uint64_t i = 0; i < N; i++) {
         double d = kheiron_uniform_double();
 
-        /* Critical mathematical boundary assertions */
         ADV_CHECK(d >= 0.0, "Sample is negative");
         ADV_CHECK(d < 1.0, "Sample produced 1.0 or greater");
         ADV_CHECK(d != 1.0, "Sample strictly produced 1.0");
@@ -437,7 +402,6 @@ static bool test_floating_point_bounds_and_mantissa(void) {
         if (d < min_val) min_val = d;
         if (d > max_val) max_val = d;
 
-        /* Extract 53-bit mantissa integer: d = k * 2^-53, so k = (uint64_t)(d * 2^53) */
         uint64_t mantissa = (uint64_t)(d * 9007199254740992.0);
         for (int b = 0; b < 53; b++) {
             if ((mantissa >> b) & 1ULL) {
@@ -450,7 +414,6 @@ static bool test_floating_point_bounds_and_mantissa(void) {
            min_val, max_val, 1.0 - max_val);
     ADV_CHECK(max_val < 1.0, "Max value was not strictly less than 1.0");
 
-    /* Verify uniform mantissa bit frequency */
     double exp_count = (double)N * 0.5;
     double stddev = sqrt((double)N * 0.25);
     for (int b = 0; b < 53; b++) {
@@ -458,7 +421,6 @@ static bool test_floating_point_bounds_and_mantissa(void) {
         ADV_CHECK_FMT(z < 4.5, "Mantissa bit z-score %.2f exceeded 4.5", (float)z);
     }
 
-    /* Single precision float verification (1,000,000 samples) */
     printf("[3.2] Testing 10^6 samples of kheiron_uniform_float() for [0.0f, 1.0f)...\n");
     for (int i = 0; i < 1000000; i++) {
         float f = kheiron_uniform_float();
@@ -468,14 +430,9 @@ static bool test_floating_point_bounds_and_mantissa(void) {
     ADV_PASS("Floating-point precision strictly in [0.0, 1.0) and uniform 53-bit mantissa verified");
 }
 
-/* ========================================================================= */
-/* 4. VOLATILE MEMORY SANITIZATION                                           */
-/* ========================================================================= */
-
 static bool test_secure_wipe_canary(void) {
     printf("[4.1] Testing kheiron_secure_wipe on heap, stack, and boundary buffers...\n");
 
-    /* 1. Stack canary */
     uint8_t stack_buf[256];
     for (size_t i = 0; i < sizeof(stack_buf); i++) stack_buf[i] = (uint8_t)(i + 1);
     kheiron_secure_wipe(stack_buf, sizeof(stack_buf));
@@ -483,7 +440,6 @@ static bool test_secure_wipe_canary(void) {
         ADV_CHECK(stack_buf[i] == 0, "Stack canary byte was not zeroed");
     }
 
-    /* 2. Heap buffer */
     uint8_t *heap_buf = (uint8_t *)malloc(1024);
     ADV_CHECK(heap_buf != NULL, "Out of memory");
     memset(heap_buf, 0xAA, 1024);
@@ -493,16 +449,11 @@ static bool test_secure_wipe_canary(void) {
     }
     free(heap_buf);
 
-    /* 3. Degenerate wipe calls (NULL or 0 bytes) */
     kheiron_secure_wipe(NULL, 100);
     kheiron_secure_wipe(stack_buf, 0);
 
     ADV_PASS("kheiron_secure_wipe basic sanitization verified");
 }
-
-/* ========================================================================= */
-/* 5. ARBITRARY POINTER MISALIGNMENT & PAGE BOUNDARIES UNDER ASAN/UBSAN      */
-/* ========================================================================= */
 
 static bool test_unaligned_loads_and_stores(void) {
     printf("[5.1] Stress-testing unaligned loads and stores with offsets {1,2,3,5,7,15,31,63,127}...\n");
@@ -522,23 +473,20 @@ static bool test_unaligned_loads_and_stores(void) {
             uint8_t *mem = (uint8_t *)malloc(alloc_sz);
             ADV_CHECK(mem != NULL, "malloc failed");
 
-            /* Canaries */
             memset(mem, 0xCD, alloc_sz);
 
             uint8_t *target = mem + offset;
             int ret = kheiron_fill(target, size);
             ADV_CHECK(ret == 0, "kheiron_fill failed");
 
-            /* Check leading canaries */
             for (size_t i = 0; i < offset; i++) {
                 ADV_CHECK(mem[i] == 0xCD, "Leading canary corrupted!");
             }
-            /* Check trailing canaries */
+
             for (size_t i = offset + size; i < alloc_sz; i++) {
                 ADV_CHECK(mem[i] == 0xCD, "Trailing canary corrupted!");
             }
 
-            /* Context fill unaligned test */
             kheiron_ctx_t ctx;
             kheiron_ctx_init(&ctx, "seed_test", 9);
             ret = kheiron_ctx_fill(&ctx, target, size);
@@ -564,7 +512,6 @@ static bool test_page_boundary_guard_abutment(void) {
     long page_size = sysconf(_SC_PAGESIZE);
     ADV_CHECK(page_size > 0, "Invalid page size");
 
-    /* Allocate 3 pages: [Page 0: RW] [Page 1: RW] [Page 2: PROT_NONE (Guard)] */
     size_t total_map = (size_t)page_size * 3;
     uint8_t *map = (uint8_t *)mmap(NULL, total_map, PROT_READ | PROT_WRITE,
                                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -573,11 +520,9 @@ static bool test_page_boundary_guard_abutment(void) {
     uint8_t *page1 = map + page_size;
     uint8_t *page2_guard = map + 2 * page_size;
 
-    /* Guard Page 2 */
     int m_ret = mprotect(page2_guard, (size_t)page_size, PROT_NONE);
     ADV_CHECK(m_ret == 0, "mprotect guard page failed");
 
-    /* 1. Straddle Page 0 and Page 1 across the boundary */
     const size_t offsets_from_bound[] = {1, 2, 3, 5, 7, 15, 31, 63, 127};
     const size_t straddle_sizes[] = {64, 128, 256, 512, 1024, 2048};
 
@@ -585,15 +530,13 @@ static bool test_page_boundary_guard_abutment(void) {
         size_t off = offsets_from_bound[o];
         for (size_t s = 0; s < sizeof(straddle_sizes) / sizeof(straddle_sizes[0]); s++) {
             size_t sz = straddle_sizes[s];
-            /* Start 'off' bytes before Page 1, spanning across Page 0 -> Page 1 */
+
             uint8_t *target = page1 - off;
             int ret = kheiron_fill(target, sz);
             ADV_CHECK(ret == 0, "Straddle fill failed");
         }
     }
 
-    /* 2. Abut EXACTLY against the PROT_NONE guard page!
-     * Buffer ends exactly at page2_guard. Any write overshoot into page2_guard causes SIGSEGV. */
     const size_t abut_sizes[] = {1, 2, 3, 5, 7, 15, 31, 63, 64, 65, 127, 128, 255, 256, 511, 512, 513, 1024, 2048, 4096};
     for (size_t a = 0; a < sizeof(abut_sizes) / sizeof(abut_sizes[0]); a++) {
         size_t sz = abut_sizes[a];
@@ -601,27 +544,21 @@ static bool test_page_boundary_guard_abutment(void) {
         int ret = kheiron_fill(target, sz);
         ADV_CHECK(ret == 0, "Abutting fill failed");
 
-        /* Also test context fill */
         kheiron_ctx_t ctx;
         kheiron_ctx_init(&ctx, "guard_seed", 10);
         ret = kheiron_ctx_fill(&ctx, target, sz);
         ADV_CHECK(ret == 0, "Abutting ctx_fill failed");
     }
 
-    /* Cleanup: restore permissions and unmap */
     mprotect(page2_guard, (size_t)page_size, PROT_READ | PROT_WRITE);
     munmap(map, total_map);
 
     ADV_PASS("Page boundary straddling and PROT_NONE guard abutment passed with 0 faults");
 }
 
-/* ========================================================================= */
-/* 6. MULTI-THREADED CONTENTION AND STREAM INDEPENDENCE                      */
-/* ========================================================================= */
-
 #define NUM_THREADS 16
 #define BLOCKS_PER_THREAD 1024
-#define BYTES_PER_THREAD (BLOCKS_PER_THREAD * 64) /* 65,536 bytes */
+#define BYTES_PER_THREAD (BLOCKS_PER_THREAD * 64)
 
 typedef struct {
     int thread_id;
@@ -666,7 +603,6 @@ static bool test_multithreaded_independence_and_collision(void) {
         ADV_CHECK(targs[t].status == 0, "Thread reported failure");
     }
 
-    /* 1. Check for duplicate 64-byte blocks across all threads (Total blocks: 16 * 1024 = 16,384) */
     size_t total_blocks = NUM_THREADS * BLOCKS_PER_THREAD;
     uint64_t *block_prefixes = (uint64_t *)malloc(total_blocks * sizeof(uint64_t));
     ADV_CHECK(block_prefixes != NULL, "malloc failed");
@@ -680,7 +616,6 @@ static bool test_multithreaded_independence_and_collision(void) {
         }
     }
 
-    /* Check pairwise uniqueness */
     int collisions = 0;
     for (size_t i = 0; i < total_blocks; i++) {
         for (size_t j = i + 1; j < total_blocks; j++) {
@@ -692,7 +627,6 @@ static bool test_multithreaded_independence_and_collision(void) {
     free(block_prefixes);
     ADV_CHECK_FMT(collisions == 0, "Found %d block prefix collisions across thread streams!", collisions);
 
-    /* 2. Cross-Thread Pearson Correlation Coefficient for all 120 thread pairs */
     int pairs_tested = 0;
     for (int i = 0; i < NUM_THREADS; i++) {
         for (int j = i + 1; j < NUM_THREADS; j++) {
@@ -769,10 +703,6 @@ static bool test_multithreaded_high_contention_scaling(void) {
     ADV_PASS("32-thread high contention stress test passed cleanly with zero lock serialization");
 }
 
-/* ========================================================================= */
-/* MAIN RUNNER                                                               */
-/* ========================================================================= */
-
 int main(void) {
     printf("%s================================================================================%s\n", COLOR_CYAN, COLOR_RESET);
     printf("%sKHEIRON MILESTONE 4 TIER 5 ADVERSARIAL STRESS TEST BATTERY (CHALLENGER 2)%s\n", COLOR_BOLD, COLOR_RESET);
@@ -781,7 +711,6 @@ int main(void) {
 
     double start_time = (double)clock() / CLOCKS_PER_SEC;
 
-    /* 1. AVX2 vs Scalar Keystream Equivalence */
 #if KHEIRON_HAVE_AVX2
     test_avx2_vs_scalar_direct_8blocks();
     test_avx2_vs_scalar_counter_overflow();
@@ -792,21 +721,16 @@ int main(void) {
     printf("[1] Skipping AVX2 tests (KHEIRON_HAVE_AVX2 is 0 on this build target)\n");
 #endif
 
-    /* 2. Lemire Modulo Bias-Free Range Sampling */
     test_lemire_extreme_ranges();
     test_lemire_chi_square_prime_ranges();
 
-    /* 3. Floating-Point Precision & Mantissa Uniformity */
     test_floating_point_bounds_and_mantissa();
 
-    /* 4. Volatile Memory Sanitization */
     test_secure_wipe_canary();
 
-    /* 5. Pointer Misalignment & Page Boundary Guard Abutment */
     test_unaligned_loads_and_stores();
     test_page_boundary_guard_abutment();
 
-    /* 6. Multi-threaded Contention and Independence */
     test_multithreaded_independence_and_collision();
     test_multithreaded_high_contention_scaling();
 

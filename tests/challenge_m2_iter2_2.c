@@ -45,10 +45,6 @@ static int g_challenge_fails = 0;
     } \
 } while (0)
 
-/* ========================================================================= */
-/* Suite 1: Empirical Process Isolation, Watchdog & Crash Resilience         */
-/* ========================================================================= */
-
 static test_status_t helper_passing_test(void) {
     return TEST_PASS;
 }
@@ -58,14 +54,14 @@ static test_status_t helper_failing_test(void) {
 }
 
 static test_status_t helper_segv_test(void) {
-    /* Deliberately trigger SIGSEGV in isolated child */
+
     volatile int *bad_ptr = (volatile int *)0;
     *bad_ptr = 42;
     return TEST_PASS;
 }
 
 static test_status_t helper_abort_test(void) {
-    /* Deliberately abort child */
+
     abort();
     return TEST_PASS;
 }
@@ -80,7 +76,6 @@ static test_status_t helper_atexit_test(void) {
     return TEST_PASS;
 }
 
-/* Custom watchdog runner to test timeout in 1 second instead of waiting 5s */
 static inline test_status_t test_run_isolated_watchdog(test_fn_t fn, unsigned int timeout_sec) {
     fflush(stdout);
     fflush(stderr);
@@ -99,7 +94,7 @@ static inline test_status_t test_run_isolated_watchdog(test_fn_t fn, unsigned in
         return TEST_FAIL;
     }
     if (WIFSIGNALED(status)) {
-        /* Caught signal (e.g., SIGALRM = 14 or SIGSEGV = 11) */
+
         return TEST_FAIL;
     }
     if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
@@ -118,30 +113,24 @@ static test_status_t helper_hang_test(void) {
 static int test_process_isolation_oracle(void) {
     printf("[Suite 1] Empirical Process Isolation, Watchdog & Crash Oracle...\n");
 
-    /* 1. Normal pass */
     test_status_t res_pass = test_run_isolated(helper_passing_test);
     CH_ASSERT_EQ(res_pass, TEST_PASS, "test_run_isolated must return TEST_PASS for passing test");
 
-    /* 2. Normal fail */
     test_status_t res_fail = test_run_isolated(helper_failing_test);
     CH_ASSERT_EQ(res_fail, TEST_FAIL, "test_run_isolated must return TEST_FAIL for failing test");
 
-    /* 3. Crash resilience: SIGSEGV must NOT crash runner and must return TEST_FAIL */
     test_status_t res_segv = test_run_isolated(helper_segv_test);
     CH_ASSERT_EQ(res_segv, TEST_FAIL, "test_run_isolated must safely catch SIGSEGV and return TEST_FAIL");
 
-    /* 4. Abort resilience: abort() must return TEST_FAIL */
     test_status_t res_abort = test_run_isolated(helper_abort_test);
     CH_ASSERT_EQ(res_abort, TEST_FAIL, "test_run_isolated must safely catch abort() and return TEST_FAIL");
 
-    /* 5. Watchdog timeout: infinite loop is killed by alarm(1) and returns TEST_FAIL */
     double t0 = (double)clock() / CLOCKS_PER_SEC;
     test_status_t res_hang = test_run_isolated_watchdog(helper_hang_test, 1);
     double t1 = (double)clock() / CLOCKS_PER_SEC;
     (void)(t1 - t0);
     CH_ASSERT_EQ(res_hang, TEST_FAIL, "Watchdog must terminate hanging test via SIGALRM and return TEST_FAIL");
 
-    /* 6. _exit semantics: atexit handler registered in child MUST NOT execute in parent or child */
     g_atexit_executed = 0;
     test_status_t res_exit = test_run_isolated(helper_atexit_test);
     CH_ASSERT_EQ(res_exit, TEST_PASS, "atexit test should pass");
@@ -150,10 +139,6 @@ static int test_process_isolation_oracle(void) {
     printf("  -> [PASS] Process isolation, signal recovery, watchdog timeout, and _exit semantics verified!\n");
     return TEST_OK;
 }
-
-/* ========================================================================= */
-/* Suite 2: Rapid Process Isolation Stress (FD & Process Table Leaks)       */
-/* ========================================================================= */
 
 static int count_open_fds(void) {
     int count = 0;
@@ -181,12 +166,10 @@ static int test_process_isolation_rapid_churn(void) {
         }
     }
 
-    /* Assert no zombie processes left */
     int status;
     pid_t w = waitpid(-1, &status, WNOHANG);
     CH_ASSERT(w <= 0, "Zombie process detected after isolated tests");
 
-    /* Assert FD count did not increase */
     int final_fds = count_open_fds();
     CH_ASSERT_EQ(final_fds, initial_fds, "File descriptor leak detected during process isolation");
 
@@ -194,28 +177,20 @@ static int test_process_isolation_rapid_churn(void) {
     return TEST_OK;
 }
 
-/* ========================================================================= */
-/* Suite 3: Domain 15 Defensive Invariant Stress                             */
-/* ========================================================================= */
-
 static int test_domain15_defensive_stress(void) {
     printf("[Suite 3] Domain 15 Defensive Invariant Stress (NULL/Extreme Bounds)...\n");
 
     uint8_t valid_buf[64];
     memset(valid_buf, 0xAA, sizeof(valid_buf));
 
-    /* kheiron_fill NULL */
     CH_ASSERT_EQ(kheiron_fill(NULL, 1), -1, "kheiron_fill(NULL, 1) must return -1");
     CH_ASSERT_EQ(kheiron_fill(NULL, 1024), -1, "kheiron_fill(NULL, 1024) must return -1");
     CH_ASSERT_EQ(kheiron_fill(NULL, 0), -1, "kheiron_fill(NULL, 0) must return -1");
 
-    /* kheiron_fill zero len with valid buf */
     CH_ASSERT_EQ(kheiron_fill(valid_buf, 0), 0, "kheiron_fill(valid_buf, 0) must return 0");
 
-    /* kheiron_ctx_init NULL ctx */
     CH_ASSERT_EQ(kheiron_ctx_init(NULL, "seed", 4), -1, "kheiron_ctx_init(NULL, ...) must return -1");
 
-    /* kheiron_ctx_fill NULL */
     kheiron_ctx_t ctx;
     CH_ASSERT_EQ(kheiron_ctx_init(&ctx, NULL, 0), 0, "kheiron_ctx_init auto-seed should succeed");
     CH_ASSERT_EQ(kheiron_ctx_fill(NULL, valid_buf, 16), -1, "kheiron_ctx_fill(NULL, buf, len) must return -1");
@@ -223,26 +198,17 @@ static int test_domain15_defensive_stress(void) {
     CH_ASSERT_EQ(kheiron_ctx_fill(&ctx, NULL, 0), -1, "kheiron_ctx_fill(ctx, NULL, 0) must return -1");
     CH_ASSERT_EQ(kheiron_ctx_fill(&ctx, valid_buf, 0), 0, "kheiron_ctx_fill(ctx, buf, 0) must return 0");
 
-    /* kheiron_ctx_wipe NULL */
-    kheiron_ctx_wipe(NULL); /* Must not segfault */
+    kheiron_ctx_wipe(NULL);
     kheiron_ctx_wipe(&ctx);
 
-    /* kheiron_secure_wipe NULL */
-    kheiron_secure_wipe(NULL, 100); /* Must not segfault */
+    kheiron_secure_wipe(NULL, 100);
     kheiron_secure_wipe(NULL, 0);
 
-    /* kheiron_os_entropy defensive contract:
-     * NULL buffer with len > 0 -> -1
-     * NULL buffer with len == 0 -> 0
-     * valid buffer with len == 0 -> 0
-     * valid buffer with len > 0 -> 0
-     */
     CH_ASSERT_EQ(kheiron_os_entropy(NULL, 32), -1, "kheiron_os_entropy(NULL, 32) must return -1");
     CH_ASSERT_EQ(kheiron_os_entropy(NULL, 0), 0, "kheiron_os_entropy(NULL, 0) must return 0");
     CH_ASSERT_EQ(kheiron_os_entropy(valid_buf, 0), 0, "kheiron_os_entropy(valid_buf, 0) must return 0");
     CH_ASSERT_EQ(kheiron_os_entropy(valid_buf, 32), 0, "kheiron_os_entropy(valid_buf, 32) must return 0");
 
-    /* kheiron_derive defensive guards */
     CH_ASSERT_EQ(kheiron_ctx_init(&ctx, NULL, 0), 0, "ctx init");
     CH_ASSERT_EQ(kheiron_derive(NULL, valid_buf, 32, "info", 4), -1, "derive NULL ctx must return -1");
     CH_ASSERT_EQ(kheiron_derive(&ctx, NULL, 32, "info", 4), -1, "derive NULL out must return -1");
@@ -250,24 +216,20 @@ static int test_domain15_defensive_stress(void) {
     CH_ASSERT_EQ(kheiron_derive(&ctx, valid_buf, 0, "info", 4), -1, "derive 0 length must return -1");
     kheiron_ctx_wipe(&ctx);
 
-    /* kheiron_string defensive guards */
     char str[16];
     CH_ASSERT_EQ(kheiron_string(NULL, 10, "abc"), -1, "kheiron_string NULL str must return -1");
     CH_ASSERT_EQ(kheiron_string(str, 10, NULL), -1, "kheiron_string NULL charset must return -1");
     CH_ASSERT_EQ(kheiron_string(str, 10, ""), -1, "kheiron_string empty charset must return -1");
     CH_ASSERT_EQ(kheiron_string(str, 0, "abc"), -1, "kheiron_string len=0 must return -1");
 
-    /* kheiron_shuffle defensive guards */
     CH_ASSERT_EQ(kheiron_shuffle(NULL, 10, 4), -1, "kheiron_shuffle NULL base must return -1");
     CH_ASSERT_EQ(kheiron_shuffle(valid_buf, 10, 0), -1, "kheiron_shuffle 0 elem_size must return -1");
     CH_ASSERT_EQ(kheiron_shuffle(valid_buf, 0, 4), -1, "kheiron_shuffle 0 nmemb must return -1");
     CH_ASSERT_EQ(kheiron_shuffle(valid_buf, 1, 4), -1, "kheiron_shuffle 1 nmemb must return -1");
 
-    /* kheiron_reseed defensive guards */
     CH_ASSERT_EQ(kheiron_reseed(NULL, 32), -1, "kheiron_reseed NULL entropy must return -1");
     CH_ASSERT_EQ(kheiron_reseed(valid_buf, 0), -1, "kheiron_reseed 0 len must return -1");
 
-    /* kheiron_consttime_cmp defensive guards */
     CH_ASSERT_EQ(kheiron_consttime_cmp(NULL, valid_buf, 16), -1, "kheiron_consttime_cmp NULL a must return -1");
     CH_ASSERT_EQ(kheiron_consttime_cmp(valid_buf, NULL, 16), -1, "kheiron_consttime_cmp NULL b must return -1");
     CH_ASSERT_EQ(kheiron_consttime_cmp(valid_buf, valid_buf, 0), -1, "kheiron_consttime_cmp len 0 must return -1");
@@ -276,16 +238,11 @@ static int test_domain15_defensive_stress(void) {
     return TEST_OK;
 }
 
-/* ========================================================================= */
-/* Suite 4: Hardware RDTSC, Jitter Sampling & OS Entropy Stress              */
-/* ========================================================================= */
-
 #define JITTER_DRAWS 50000
 
 static int test_entropy_and_jitter_stress(void) {
     printf("[Suite 4] kheiron_rdtsc, kheiron_jitter_sample & kheiron_os_entropy Stress...\n");
 
-    /* 1. kheiron_rdtsc monotonicity */
     uint64_t prev = kheiron_rdtsc();
     for (int i = 0; i < 10000; i++) {
         uint64_t cur = kheiron_rdtsc();
@@ -293,7 +250,6 @@ static int test_entropy_and_jitter_stress(void) {
         prev = cur;
     }
 
-    /* 2. kheiron_jitter_sample bitwise variance over 50,000 draws */
     uint64_t or_accum = 0;
     uint64_t and_accum = ~0ULL;
     uint64_t bit_counts[64] = {0};
@@ -313,12 +269,10 @@ static int test_entropy_and_jitter_stress(void) {
         }
     }
 
-    /* No bit stuck at 0 or 1 */
     CH_ASSERT_EQ(or_accum, ~0ULL, "Absence of stuck zero bits across 50,000 jitter draws");
     CH_ASSERT_EQ(and_accum, 0ULL, "Absence of stuck one bits across 50,000 jitter draws");
     CH_ASSERT(consecutive_distinct >= (int)(JITTER_DRAWS * 0.70), "Jitter should have high pairwise variance");
 
-    /* 3. kheiron_os_entropy non-degeneracy */
     uint8_t ent1[64], ent2[64];
     CH_ASSERT_EQ(kheiron_os_entropy(ent1, 64), 0, "os_entropy draw 1");
     CH_ASSERT_EQ(kheiron_os_entropy(ent2, 64), 0, "os_entropy draw 2");
@@ -327,10 +281,6 @@ static int test_entropy_and_jitter_stress(void) {
     printf("  -> [PASS] rdtsc, jitter (50,000 draws), and os_entropy stress verified!\n");
     return TEST_OK;
 }
-
-/* ========================================================================= */
-/* Suite 5: Multi-Threaded Entropy Concurrency Stress                       */
-/* ========================================================================= */
 
 #define NUM_THREADS 16
 #define THREAD_ITERS 1000
@@ -347,16 +297,15 @@ static void *worker_entropy_thread(void *arg) {
 
     uint8_t buf[256];
     for (int i = 0; i < THREAD_ITERS; i++) {
-        /* Draw OS entropy */
+
         if (kheiron_os_entropy(buf, 32) != 0) {
             return NULL;
         }
-        /* Draw jitter */
+
         uint64_t j = kheiron_jitter_sample();
-        /* Draw rdtsc */
+
         uint64_t r = kheiron_rdtsc();
 
-        /* Hash into thread digest */
         for (int b = 0; b < 32; b++) {
             t->digest[b] ^= buf[b] ^ (uint8_t)(j >> ((b % 8) * 8)) ^ (uint8_t)(r >> ((b % 8) * 8));
         }
@@ -381,7 +330,6 @@ static int test_multithread_entropy_stress(void) {
         }
     }
 
-    /* Wait for ALL threads to complete before inspecting any args */
     for (int i = 0; i < NUM_THREADS; i++) {
         pthread_join(th[i], NULL);
     }
@@ -390,7 +338,6 @@ static int test_multithread_entropy_stress(void) {
         CH_ASSERT_EQ(args[i].success, 1, "Thread failed entropy generation");
     }
 
-    /* Verify thread digests are pairwise distinct */
     for (int i = 0; i < NUM_THREADS; i++) {
         for (int j = i + 1; j < NUM_THREADS; j++) {
             CH_ASSERT(memcmp(args[i].digest, args[j].digest, 32) != 0,
@@ -401,10 +348,6 @@ static int test_multithread_entropy_stress(void) {
     printf("  -> [PASS] All %d threads completed without data races or symbol collisions!\n", NUM_THREADS);
     return TEST_OK;
 }
-
-/* ========================================================================= */
-/* Main Runner                                                               */
-/* ========================================================================= */
 
 int main(void) {
     printf("================================================================================\n");
