@@ -22,6 +22,7 @@
 - **Unbiased Sampling**: Daniel Lemire's 128-bit multiplication rejection sampling (`__uint128_t`) for modulo-bias-free integers and exact IEEE 754 mantissa mapping (`[0.0, 1.0)`).
 - **DSE-Resistant Memory Sanitization**: `kheiron_secure_wipe` uses volatile pointers and compiler memory barriers to prevent Dead Store Elimination under `-O2`/`-O3`.
 - **Fork Resilience & Lock-Free TLS**: `pthread_atfork` child reseed handlers (without hazardous `madvise` calls on arbitrary stack/heap pointers) and thread-local global state (`KHEIRON_THREAD_LOCAL`) plus explicit `kheiron_ctx_t` contexts.
+- **Empirical Randomness**: Verified with PractRand v0.94 up to 1 Terabyte (`2^40` bytes) with zero statistical anomalies across all test checkpoints. See [docs/statistical_validation.md](docs/statistical_validation.md).
 
 ---
 

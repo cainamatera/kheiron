@@ -59,3 +59,28 @@ length= 16 gigabytes (2^34 bytes), time= 130 seconds
 ### Conclusion
 
 Across all 310 statistical tests evaluated up to 16 GB, **zero anomalies** were detected (`no anomalies`). This confirms that Kheiron's 256-bit ChaCha20 core, RFC 8439 permutation, and AVX2 vectorization exhibit no measurable bias or stochastic anomaly.
+
+## 1 Terabyte Stress Test Results (PractRand v0.94 Multithreaded)
+
+Full-scale statistical stress test executed up to **1 Terabyte (`2^40` bytes)** using PractRand v0.94 multithreaded against `bin/kheiron_stream` (full raw log preserved in [`docs/practrand_1tb.log`](practrand_1tb.log)).
+
+- **Total Data Processed**: 1 terabyte (`2^40` bytes)
+- **Total Execution Time**: 2703 seconds (~45.05 minutes)
+- **Total Tests Evaluated at 1 TB**: 397 test results
+- **Final Status**: **Zero anomalies** (`no anomalies in 397 test result(s)`)
+
+### Checkpoint Summary
+
+| Length | Time | Result |
+| :--- | :--- | :--- |
+| 1 GB (`2^30` bytes) | 2.8 s | `no anomalies in 243 test result(s)` |
+| 2 GB (`2^31` bytes) | 5.8 s | `no anomalies in 261 test result(s)` |
+| 4 GB (`2^32` bytes) | 11.3 s | 1 `unusual` (`[Low4/64]Gap-16:B`, `p = 1-2.9e-4`), 276 without anomalies |
+| 8 GB (`2^33` bytes) | 22.9 s | `no anomalies in 294 test result(s)` |
+| 16 GB (`2^34` bytes) | 45.1 s | `no anomalies in 310 test result(s)` |
+| 32 GB (`2^35` bytes) | 86.5 s | `no anomalies in 325 test result(s)` |
+| 64 GB (`2^36` bytes) | 176 s | `no anomalies in 340 test result(s)` |
+| 128 GB (`2^37` bytes) | 346 s | `no anomalies in 355 test result(s)` |
+| 256 GB (`2^38` bytes) | 668 s | `no anomalies in 369 test result(s)` |
+| 512 GB (`2^39` bytes) | 1358 s | `no anomalies in 383 test result(s)` |
+| **1 TB (`2^40` bytes)** | **2703 s** | **`no anomalies in 397 test result(s)`** |
