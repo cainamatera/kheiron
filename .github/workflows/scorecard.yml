@@ -21,13 +21,13 @@ jobs:
 
     steps:
       - name: "Checkout repository"
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
           fetch-depth: 0
 
       - name: "Run OpenSSF Scorecard analysis"
-        uses: ossf/scorecard-action@0412b1662058531014284770193f91dd92f6d407 # v2.4.0
+        uses: ossf/scorecard-action@v2.4.0
         with:
           results_file: results.sarif
           results_format: sarif
@@ -36,13 +36,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: "Upload SARIF artifact"
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        uses: actions/upload-artifact@v4
         with:
           name: SARIF file
           path: results.sarif
           retention-days: 5
 
       - name: "Upload SARIF to GitHub Code Scanning"
-        uses: github/codeql-action/upload-sarif@6bb034414c761b3035773ca0829fb21faaca3707 # v3.28.11
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
