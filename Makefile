@@ -17,7 +17,7 @@ E2E_SRCS   = tests/e2e_runner.c tests/tier1_features.c tests/tier2_boundaries.c 
 E2E_CFLAGS = $(CFLAGS) -I.
 E2E_LDFLAGS = $(LDFLAGS)
 
-.PHONY: all test strict sanitize clean e2e_build e2e_test e2e_sanitize e2e_scalar e2e_all bench bench_quick bench_sanitize tier5_test tier5_sanitize
+.PHONY: all test strict sanitize clean e2e_build e2e_test e2e_sanitize e2e_scalar e2e_all bench bench_quick bench_sanitize tier5_test tier5_sanitize stream
 
 all: $(TARGET)
 
@@ -86,5 +86,9 @@ tier5_sanitize:
 	$(CC) $(CFLAGS) -fsanitize=address,undefined -g -I. tests/tier5_adversarial_m4_2.c -o tests/tier5_adversarial_m4_2_san $(LDFLAGS)
 	./tests/tier5_adversarial_m4_2_san
 
+stream:
+	mkdir -p bin
+	$(CC) -std=c99 -O3 -Wall -Wextra -Wpedantic -Werror -I. tools/kheiron_stream.c -o bin/kheiron_stream $(LDFLAGS)
+
 clean:
-	rm -f $(TARGET) $(E2E_RUNNER) $(E2E_RUNNER)_san $(E2E_RUNNER)_scalar $(BENCH_TARGET) $(BENCH_TARGET)_san tests/tier5_adversarial_m4_1 tests/tier5_adversarial_m4_1_san tests/tier5_adversarial_m4_2 tests/tier5_adversarial_m4_2_san tests/tier5_adversarial_m4_2_scalar tests/test_dse_wipe *.o *.out
+	rm -f $(TARGET) $(E2E_RUNNER) $(E2E_RUNNER)_san $(E2E_RUNNER)_scalar $(BENCH_TARGET) $(BENCH_TARGET)_san tests/tier5_adversarial_m4_1 tests/tier5_adversarial_m4_1_san tests/tier5_adversarial_m4_2 tests/tier5_adversarial_m4_2_san tests/tier5_adversarial_m4_2_scalar tests/test_dse_wipe bin/kheiron_stream *.o *.out
