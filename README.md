@@ -1,13 +1,10 @@
+> [Versão em Português](README.pt-BR.md)
+
 # Kheiron v2.0.1 — High-Performance Single-Header C99 CSPRNG with AVX2 Vectorization
 
 [![CI](https://github.com/cainamatera/kheiron/actions/workflows/ci.yml/badge.svg)](https://github.com/cainamatera/kheiron/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/cainamatera/kheiron/actions/workflows/codeql.yml/badge.svg)](https://github.com/cainamatera/kheiron/actions/workflows/codeql.yml)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16676/badge)](https://www.bestpractices.dev/projects/16676)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Standards: C99 / C11](https://img.shields.io/badge/Standards-C99%20%2F%20C11-brightgreen.svg)](#)
-[![Zero Dependency](https://img.shields.io/badge/Dependencies-Zero-orange.svg)](#)
-
-> [Versão em Português](README.pt-BR.md)
 
 **Kheiron** is a zero-dependency, single-header Cryptographically Secure Pseudo-Random Number Generator (CSPRNG) written in C99/C11, built on the 20-round **ChaCha20** stream cipher (**RFC 8439**) with **8-block parallel AVX2 vectorization (~2.5 GB/s)**, runtime CPUID dispatch, and a transparent portable C99 scalar fallback for any architecture (ARM, RISC-V, legacy x86) without requiring global compiler flags.
 
@@ -22,11 +19,11 @@
 - **Unbiased Sampling**: Daniel Lemire's 128-bit multiplication rejection sampling (`__uint128_t`) for modulo-bias-free integers and exact IEEE 754 mantissa mapping (`[0.0, 1.0)`).
 - **DSE-Resistant Memory Sanitization**: `kheiron_secure_wipe` uses volatile pointers and compiler memory barriers to prevent Dead Store Elimination under `-O2`/`-O3`.
 - **Fork Resilience & Lock-Free TLS**: `pthread_atfork` child reseed handlers (without hazardous `madvise` calls on arbitrary stack/heap pointers) and thread-local global state (`KHEIRON_THREAD_LOCAL`) plus explicit `kheiron_ctx_t` contexts.
-- **Empirical Randomness**: Verified with PractRand v0.94 up to 1 Terabyte (`2^40` bytes) with zero statistical anomalies across all test checkpoints. See [docs/statistical_validation.md](docs/statistical_validation.md).
+- **Proven Empirical Randomness**: Verified with PractRand v0.94 up to 1 Terabyte (`2^40` bytes) with zero statistical anomalies across all 397 tests. See [docs/statistical_validation.md](docs/statistical_validation.md).
 
 ---
 
-## Empirical Benchmark Comparison (Kheiron vs. OpenSSL 3.x `RAND_bytes`)
+## Empirical Benchmark Comparison (Kheiron vs. OpenSSL `RAND_bytes`)
 
 Measured on Linux `x86_64` (AVX2 enabled, with active 1 MB forward secrecy key rotation):
 
@@ -41,9 +38,18 @@ See [BENCHMARK.md](BENCHMARK.md) for the full measurement methodology.
 
 ---
 
-## Quickstart
+## Quickstart & Integration
 
-In exactly one `.c` translation unit:
+In **exactly one** `.c` translation unit, define `KHEIRON_IMPLEMENTATION` before including the header:
+
+```c
+#define KHEIRON_IMPLEMENTATION
+#include "kheiron.h"
+```
+
+In all other `.c` files, simply include `"kheiron.h"`. To emit all routines as `static inline` without exporting global symbols (useful for multi-module isolation), define `KHEIRON_STATIC` before `#include "kheiron.h"`.
+
+### Complete Example
 
 ```c
 #define KHEIRON_IMPLEMENTATION
@@ -58,34 +64,73 @@ int main(void) {
 
     uint64_t roll = kheiron_range_u64(1, 6);
     double unit = kheiron_uniform_double();
-    printf("Roll: %llu | Uniform: %.8f\n", (unsigned long long)roll, unit);
+    char token[17];
+    kheiron_string(token, sizeof(token), KHEIRON_CHARSET_ALNUM);
+
+    printf("Roll: %llu | Uniform: %.8f | Token: %s\n",
+           (unsigned long long)roll, unit, token);
+
+    kheiron_secure_wipe(key, sizeof(key));
     return 0;
 }
 ```
 
-Compile and run:
+Compile cleanly with C99:
 
 ```bash
-cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Werror main.c -o main -lm -pthread
-./main
+gcc -std=c99 -O3 -Wall -Wextra -Werror example.c -o example
 ```
 
 ---
 
-## Build and Test Commands
+## API Reference
 
-```bash
-make check       # Run the full 235-test E2E suite
-make quick       # Run fast smoke tests (--quick)
-make bench       # Run comparative benchmarks against OpenSSL
-make sanitizer   # Run full AddressSanitizer + UndefinedBehaviorSanitizer suite
-make clean       # Clean generated binaries and artifacts
-```
+### Initialization & Contexts
+
+| Function | Description |
+| :--- | :--- |
+| `int kheiron_ctx_init(kheiron_ctx_t *ctx)` | Initializes an explicit context from fail-closed OS entropy (`0` on success, `-1` on failure). |
+| `int kheiron_ctx_reseed(kheiron_ctx_t *ctx)` | Forces immediate reseed of an explicit context from OS entropy. |
+| `void kheiron_ctx_fill(kheiron_ctx_t *ctx, void *buf, size_t len)` | Fills `buf` with `len` cryptographically secure bytes using `ctx`. |
+| `void kheiron_ctx_wipe(kheiron_ctx_t *ctx)` | Securely wipes all internal key/nonce/counter state of `ctx`. |
+
+### Global Generation & Utilities
+
+| Function | Description |
+| :--- | :--- |
+| `int kheiron_fill(void *buf, size_t len)` | Fills `buf` with `len` bytes using the thread-local global context. |
+| `uint32_t kheiron_u32(void)` / `uint64_t kheiron_u64(void)` | Returns a uniform 32-bit or 64-bit unsigned integer. |
+| `uint64_t kheiron_range_u64(uint64_t min, uint64_t max)` | Unbiased uniform integer in `[min, max]` using Lemire's 128-bit method. |
+| `double kheiron_uniform_double(void)` | Unbiased IEEE 754 `double` in `[0.0, 1.0)` (53-bit mantissa). |
+| `float kheiron_uniform_float(void)` | Unbiased IEEE 754 `float` in `[0.0f, 1.0f)` (24-bit mantissa). |
+| `void kheiron_string(char *out, size_t len, const char *charset)` | Generates a null-terminated random string of `len - 1` characters from `charset`. |
+
+### Security Primitives
+
+| Function | Description |
+| :--- | :--- |
+| `void kheiron_secure_wipe(void *ptr, size_t len)` | DSE-resistant memory zeroization using volatile writes and compiler barriers. |
+| `void kheiron_rotate_key(kheiron_ctx_t *ctx)` | Rotates key and resets counter for active forward secrecy (automatic every 1 MB). |
+| `int kheiron_bist(void)` | Runs the built-in self-test against the official RFC 8439 ChaCha20 test vector. |
+
+---
+
+## Build & Test Commands
+
+| Command | Description |
+| :--- | :--- |
+| `make check` | Runs the full unit, RFC 8439, BIST, and fork-resilience test suite. |
+| `make quick` | Runs fast smoke tests for rapid iteration. |
+| `make bench` | Builds and executes the throughput/latency benchmark suite. |
+| `make stream` | Builds `bin/kheiron_stream` for external statistical test batteries (PractRand/TestU01). |
+| `make sanitizer` | Compiles and runs tests under ASan + UBSan (`-fsanitize=address,undefined`). |
+| `make clean` | Removes all compiled binaries and build artifacts. |
 
 ---
 
 ## Governance & Documentation
 
-- **License**: [MIT License](LICENSE)
-- **Security Policy**: [SECURITY.md](SECURITY.md)
-- **Benchmark Methodology**: [BENCHMARK.md](BENCHMARK.md)
+- [LICENSE](LICENSE) — MIT License
+- [SECURITY.md](SECURITY.md) — Vulnerability Disclosure Policy & Supported Versions
+- [BENCHMARK.md](BENCHMARK.md) — Formal Comparative Benchmark Methodology
+- [docs/statistical_validation.md](docs/statistical_validation.md) — PractRand v0.94 Statistical Validation (16 GB & 1 TB)
