@@ -24,7 +24,7 @@ jobs:
       uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@6bb034414c761b3035773ca0829fb21faaca3707 # v3.28.11
+      uses: github/codeql-action/init@6bb031afdd8eb862ea3fc1848194185e076637e5 # v3.28.11
       with:
         languages: 'c-cpp'
         queries: +security-and-quality
@@ -35,6 +35,6 @@ jobs:
         gcc -std=c99 -O2 -Wall -Wextra -I. bench_tests.c -o bench_tests -lm -pthread
 
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@6bb034414c761b3035773ca0829fb21faaca3707 # v3.28.11
+      uses: github/codeql-action/analyze@6bb031afdd8eb862ea3fc1848194185e076637e5 # v3.28.11
       with:
         category: "/language:c-cpp"

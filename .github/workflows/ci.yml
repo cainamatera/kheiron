@@ -11,6 +11,8 @@ permissions: read-all
 jobs:
   build-and-test:
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
