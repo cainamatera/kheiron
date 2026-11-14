@@ -34,7 +34,7 @@ Medido em Linux `x86_64` (AVX2 habilitado, com rotação ativa de *forward secre
 | **Pegada Binária** | **~35 KB** (estático/amalgamado) | ~7,76 MB (`libcrypto.so.3` + deps) | **~226x menor** |
 | **Dependências Dinâmicas (`.so`)** | **0 (Zero)** | 10 objetos compartilhados mapeados | **Zero dependências** |
 
-Veja [BENCHMARK.md](BENCHMARK.md) para a metodologia completa de medição.
+Veja [BENCHMARK.pt-BR.md](BENCHMARK.pt-BR.md) para a metodologia completa de medição.
 
 ---
 
@@ -132,5 +132,5 @@ gcc -std=c99 -O3 -Wall -Wextra -Werror example.c -o example
 
 - [LICENSE](LICENSE) — Licença MIT
 - [SECURITY.md](SECURITY.md) — Política de Divulgação de Vulnerabilidades e Versões Suportadas
-- [BENCHMARK.md](BENCHMARK.md) — Metodologia Formal de Benchmark Comparativo
+- [BENCHMARK.pt-BR.md](BENCHMARK.pt-BR.md) — Metodologia Formal de Benchmark Comparativo
 - [docs/statistical_validation.md](docs/statistical_validation.md) — Validação Estatística PractRand v0.94 (16 GB e 1 TB)
