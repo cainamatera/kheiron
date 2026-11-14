@@ -20,6 +20,7 @@ Gerador de Números Pseudo-Aleatórios Criptograficamente Seguro (CSPRNG) em arq
 - **Amostragem Sem Modulo Bias**: Algoritmo de Daniel Lemire com multiplicação de 128 bits (`__uint128_t`) e ponto flutuante IEEE 754 (`double` 53 bits / `float` 24 bits) em `[0.0, 1.0)`.
 - **Resiliência a Fork**: Invalidação de estado e reseed automático garantido pós-fork via `pthread_atfork` em sistemas POSIX, sem chamadas `madvise` inseguras sobre buffers arbitrários de pilha ou heap.
 - **Auto-Teste BIST Embutido**: Verificação automática de integridade do vetor oficial da RFC 8439 e sanitização de memória antes de liberar qualquer byte.
+- **Aleatoriedade Empírica**: Verificado com PractRand v0.94 até 1 Terabyte (`2^40` bytes) com zero anomalias estatísticas em todos os checkpoints de teste. Veja [docs/statistical_validation.md](docs/statistical_validation.md).
 
 ---
 
