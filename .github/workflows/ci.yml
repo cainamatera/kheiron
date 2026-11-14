@@ -17,7 +17,7 @@ jobs:
         std: [c99, c11]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup MinGW on Windows (GCC)
         if: runner.os == 'Windows' && matrix.compiler == 'gcc'
