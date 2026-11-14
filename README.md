@@ -4,6 +4,7 @@
 
 [![CI](https://github.com/cainamatera/kheiron/actions/workflows/ci.yml/badge.svg)](https://github.com/cainamatera/kheiron/actions/workflows/ci.yml)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16676/badge)](https://www.bestpractices.dev/projects/16676)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/cainamatera/kheiron/badge)](https://scorecard.dev/viewer/?uri=github.com/cainamatera/kheiron)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **Kheiron** is a zero-dependency, single-header Cryptographically Secure Pseudo-Random Number Generator (CSPRNG) written in C99/C11, built on the 20-round **ChaCha20** stream cipher (**RFC 8439**) with **8-block parallel AVX2 vectorization (~2.5 GB/s)**, runtime CPUID dispatch, and a transparent portable C99 scalar fallback for any architecture (ARM, RISC-V, legacy x86) without requiring global compiler flags.
