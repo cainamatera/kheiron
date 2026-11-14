@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/cainamatera/kheiron/actions/workflows/ci.yml/badge.svg)](https://github.com/cainamatera/kheiron/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/cainamatera/kheiron/actions/workflows/codeql.yml/badge.svg)](https://github.com/cainamatera/kheiron/actions/workflows/codeql.yml)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16676/badge)](https://www.bestpractices.dev/projects/16676)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Standards: C99 / C11](https://img.shields.io/badge/Standards-C99%20%2F%20C11-brightgreen.svg)](#)
 [![Zero Dependency](https://img.shields.io/badge/Dependencies-Zero-orange.svg)](#)
