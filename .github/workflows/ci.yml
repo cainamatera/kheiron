@@ -6,6 +6,8 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions: read-all
+
 jobs:
   build-and-test:
     runs-on: ${{ matrix.os }}
@@ -17,18 +19,18 @@ jobs:
         std: [c99, c11]
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup MinGW on Windows (GCC)
         if: runner.os == 'Windows' && matrix.compiler == 'gcc'
-        uses: msys2/setup-msys2@v2
+        uses: msys2/setup-msys2@d44ca8e88d8b43d56cf5670f91747359d5537f97 # v2.26.0
         with:
           update: true
           install: mingw-w64-x86_64-gcc mingw-w64-x86_64-make
 
       - name: Setup MinGW on Windows (Clang)
         if: runner.os == 'Windows' && matrix.compiler == 'clang'
-        uses: msys2/setup-msys2@v2
+        uses: msys2/setup-msys2@d44ca8e88d8b43d56cf5670f91747359d5537f97 # v2.26.0
         with:
           update: true
           install: mingw-w64-x86_64-clang mingw-w64-x86_64-make
